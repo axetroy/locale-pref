@@ -57,4 +57,11 @@ assert.equal(await pref.isCurrentRegion('CN'), true, 'isCurrentRegion reflects t
 await pref.clearLocale();
 assert.equal(await pref.getLocale(), 'en', 'clearLocale falls back again');
 
+// The synchronous twins keep a fully synchronous flow free of promises.
+assert.equal(pref.setLocaleSync('ja-JP'), undefined, 'setLocaleSync returns nothing');
+assert.equal(pref.getLocaleSync(), 'ja-JP', 'setLocaleSync writes synchronously');
+assert.equal(pref.isCurrentRegionSync('JP'), true, 'isCurrentRegionSync reads synchronously');
+assert.equal(pref.clearLocaleSync(), undefined, 'clearLocaleSync returns nothing');
+assert.equal(pref.getLocaleSync(), 'en', 'clearLocaleSync clears synchronously');
+
 console.log('Smoke test passed for both entry points.');

@@ -55,9 +55,12 @@ export interface LocalePref {
   getLocale(): Promise<string>;
   getLocaleSync(): string;
   setLocale(locale: string): Promise<void>;
+  setLocaleSync(locale: string): void;
   clearLocale(): Promise<void>;
+  clearLocaleSync(): void;
   isRegion(locale: string, region: string): boolean;
   isCurrentRegion(region: string): Promise<boolean>;
+  isCurrentRegionSync(region: string): boolean;
   normalizeLocale(locale: string): string | null;
   /** The adapter this instance was created with. */
   readonly storage: StorageAdapter;

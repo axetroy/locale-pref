@@ -112,9 +112,12 @@ interface LocalePref {
   getLocale(): Promise<string>;
   getLocaleSync(): string;
   setLocale(locale: string): Promise<void>;
+  setLocaleSync(locale: string): void;
   clearLocale(): Promise<void>;
+  clearLocaleSync(): void;
   isRegion(locale: string, region: string): boolean;
   isCurrentRegion(region: string): Promise<boolean>;
+  isCurrentRegionSync(region: string): boolean;
   normalizeLocale(locale: string): string | null;
   readonly storage: StorageAdapter;
 }
@@ -141,9 +144,17 @@ interface LocalePref {
 持久化语言。当 `normalize` 为 `true` 时，标签会先被规范化，非法标签会抛出 `RangeError`。写入方式为
 `storage.set(storageKey, value, storageSetOptions)`。
 
+#### `setLocaleSync(locale: string): void`
+
+`setLocale` 的同步版本：校验与 `storage.set(...)` 调用完全相同，但不返回任何值，失败时直接抛错而非 reject。仅可用于同步适配器。参见[同步适配器的写入](#同步适配器会让写入也变同步吗)。
+
 #### `clearLocale(): Promise<void>`
 
 移除已存储的语言（`storage.remove(storageKey)`），因此下一次 `getLocale()` 会重新走一遍回退链。
+
+#### `clearLocaleSync(): void`
+
+`clearLocale` 的同步版本。仅可用于同步适配器。
 
 #### `isRegion(locale: string, region: string): boolean`
 
@@ -152,6 +163,10 @@ interface LocalePref {
 #### `isCurrentRegion(region: string): Promise<boolean>`
 
 等价于 `isRegion(await getLocale(), region)`。
+
+#### `isCurrentRegionSync(region: string): boolean`
+
+等价于 `isRegion(getLocaleSync(), region)`。仅可用于同步适配器。
 
 #### `normalizeLocale(locale: string): string | null`
 
@@ -201,6 +216,29 @@ Error: getLocaleSync() requires a synchronous storage adapter
 ```
 
 如果你的适配器可以同步实现，请设置 `isSync: true`；否则请使用 `getLocale()`。
+
+### 同步适配器会让写入也变同步吗？
+
+会——正因为好几个内置适配器是同步的，库提供了对应的同步方法，让整条同步流程保持同步：`getLocaleSync()` 读取，`setLocaleSync()` 与 `clearLocaleSync()` 写入，`isCurrentRegionSync()` 判断当前地区：
+
+```ts
+const pref = createLocalePref({ storage: memoryAdapter() });
+
+pref.setLocaleSync('zh-CN'); // 返回 void，失败时抛错
+pref.getLocaleSync(); // 'zh-CN'
+pref.isCurrentRegionSync('CN'); // true
+pref.clearLocaleSync();
+```
+
+每个 `*Sync` 方法都要求同步适配器（`isSync: true`），否则抛错，与 `getLocaleSync` 一致：
+
+```
+Error: setLocaleSync() requires a synchronous storage adapter
+```
+
+**为什么需要这些同步方法。** 返回 `Promise` 的方法仍是默认选择，配合异步适配器时也仍然正确。但当整条流程本就是同步的时候，悬空的 `Promise` 就是噪音：TypeScript 和 `@typescript-eslint/no-floating-promises`（`recommendedTypeChecked` 的一部分）会要求你 `await` 它，或用 `void` 显式忽略——尽管写入其实早已完成。而且 `await` 具有传染性——它会把所在函数变成 `async`——于是调用 `setLocale()` 的同步回调无法保持同步。`*Sync` 方法返回 `void`，无需 `await` 也无需 `void`，失败就是普通的 `throw`，用 `try`/`catch` 即可。
+
+配合异步适配器、或希望同步/异步适配器共用同一条代码路径时，请用 `setLocale()` / `clearLocale()`；当适配器与周边代码都是同步的时候，请用 `*Sync` 方法。
 
 ### `cookieAdapter` 在 Node.js 中只读
 

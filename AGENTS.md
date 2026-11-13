@@ -58,6 +58,17 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
   / `remove` rejections propagate. `localStorageAdapter` and
   `sessionStorageAdapter` share `webStorageAdapter()` in
   `src/adapters/webStorage.ts`.
+- Writes and region checks have synchronous twins (`setLocaleSync`,
+  `clearLocaleSync`, `isCurrentRegionSync`) alongside the `Promise`-returning
+  methods, matching the existing `getLocaleSync`. Each `*Sync` method asserts
+  `isSync === true` via `assertSyncAdapter()` and otherwise throws
+  `"<method>() requires a synchronous storage adapter"`. They exist so a fully
+  synchronous flow stays synchronous: a floating `Promise` would trip
+  `@typescript-eslint/no-floating-promises` and `await` would force the caller
+  `async`. Keep both paths behaviorally identical (shared `normalizeForWrite()` /
+  `resolveLocaleSync()`), and do not drop the `Promise` variants — they are the
+  only option for async adapters. See `test/sync-writes.test.ts` and `DESIGN.md`
+  section 3.3.3.
 - Coverage thresholds (see `vitest.config.ts`): lines/statements/functions 90,
   branches 85. The suite currently sits at 100%.
 - Public API changes require a matching `README.md` update and a changeset.
@@ -71,8 +82,9 @@ src/global.ts       getGlobal(): globalThis -> self -> window fallback
 src/utils.ts        isRegion / normalizeLocale / detectNavigatorLocale
 src/types.ts        public interfaces (excluded from coverage)
 test/               Vitest suites, one file per source area
-                    (getLocale / setLocale / utils / global / default-instance /
-                    async-adapter / localStorage / sessionStorage / cookie)
+                    (getLocale / setLocale / sync-writes / utils / global /
+                    default-instance / async-adapter / localStorage /
+                    sessionStorage / cookie)
 scripts/            CI helpers (dependency guard, entry-point smoke test)
 ```
 
