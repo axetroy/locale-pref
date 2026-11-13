@@ -2,7 +2,7 @@
 // `exports` map, so a broken build or entry point fails CI rather than a
 // downstream user.
 import assert from 'node:assert/strict';
-import { createLocalePref, cookieAdapter, localStorageAdapter, memoryAdapter } from 'locale-pref';
+import { createLocalePref, cookieAdapter, getDefaultLocalePref, localStorageAdapter, memoryAdapter } from 'locale-pref';
 import { detectNavigatorLocale, isRegion, normalizeLocale } from 'locale-pref/utils';
 
 const pref = createLocalePref({ storage: memoryAdapter(), fallback: ['en'], defaultLocale: 'en-US' });
@@ -16,6 +16,10 @@ assert.equal(normalizeLocale('!!'), null, 'normalizeLocale rejects a malformed t
 assert.equal(cookieAdapter({ cookieString: 'a=b' }).isSync, true, 'cookieAdapter is synchronous');
 assert.equal(memoryAdapter({ k: 'v' }).get('k'), 'v', 'memoryAdapter round-trips');
 assert.equal(typeof localStorageAdapter, 'function', 'localStorageAdapter is exported');
+
+// The lazy default instance is created on first call and then reused.
+assert.equal(getDefaultLocalePref(), getDefaultLocalePref(), 'getDefaultLocalePref caches one instance');
+assert.equal(getDefaultLocalePref().storage.isSync, true, 'the default instance uses a sync adapter');
 
 // detectNavigatorLocale must never throw regardless of environment.
 const detected = detectNavigatorLocale();

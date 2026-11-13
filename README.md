@@ -100,6 +100,30 @@ called with no arguments.
 other string is treated as a fixed locale candidate. Invalid option values throw
 a `TypeError` naming the offending field.
 
+### `getDefaultLocalePref(): LocalePref`
+
+Returns a lazily-created, process-wide instance equivalent to
+`createLocalePref()` with no options (cookie storage, `'navigator'` fallback,
+`'en'` default, `'user_locale'` key). It is created on the first call, so simply
+importing the package has no side effects.
+
+```ts
+import { getDefaultLocalePref } from 'locale-pref';
+
+const pref = getDefaultLocalePref(); // same instance on every call
+await pref.setLocale('zh-CN');
+```
+
+Reach for it when the defaults fit and you want a single shared instance, for
+example in a browser app that only reads and writes the locale cookie.
+
+**Do not use it in a multi-tenant SSR server.** The instance lives for the whole
+process and always reads the `'user_locale'` cookie, so a locale taken from one
+request would leak into every other request. Create a per-request instance with
+`createLocalePref({ storage: cookieAdapter({ cookieString }) })` there instead
+(see [SSR](#server-side-rendering-ssr)). The same caution applies whenever two
+parts of an app would otherwise fight over the same `'user_locale'` key.
+
 ### The `LocalePref` instance
 
 ```ts

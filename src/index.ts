@@ -162,6 +162,25 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
   };
 }
 
+let defaultLocalePref: LocalePref | undefined;
+
+/**
+ * Lazily-created, process-wide default instance.
+ *
+ * Equivalent to `createLocalePref()` with no options (cookie storage,
+ * `'navigator'` fallback, `'en'` default, `'user_locale'` key). It is created on
+ * the first call, so importing the package stays free of side effects.
+ *
+ * Prefer `createLocalePref()` with an injected storage adapter. This instance is
+ * shared for the lifetime of the process and always uses the `'user_locale'`
+ * cookie key, so it must not be used in a multi-tenant SSR server: the locale
+ * read from one request's cookie would leak into every other request. Create a
+ * per-request instance there instead.
+ */
+export function getDefaultLocalePref(): LocalePref {
+  return (defaultLocalePref ??= createLocalePref());
+}
+
 export { cookieAdapter } from './adapters/cookie.js';
 export { localStorageAdapter } from './adapters/localStorage.js';
 export { memoryAdapter } from './adapters/memory.js';

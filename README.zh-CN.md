@@ -90,6 +90,21 @@ export function resolveRequestLocale(cookieHeader: string | undefined): string {
 
 `fallback` 中的 `'navigator'` 是保留字：它读取 `navigator.languages`。其他字符串视为固定的 locale 候选。非法的选项值会抛出 `TypeError`，并在消息中指明字段名。
 
+### `getDefaultLocalePref(): LocalePref`
+
+返回一个**惰性创建、进程级共享**的实例，等价于无参的 `createLocalePref()`（Cookie 存储、`'navigator'` 回退、默认 `'en'`、key 为 `'user_locale'`）。它在首次调用时才创建，因此单纯 `import` 本包没有副作用。
+
+```ts
+import { getDefaultLocalePref } from 'locale-pref';
+
+const pref = getDefaultLocalePref(); // 每次调用都是同一个实例
+await pref.setLocale('zh-CN');
+```
+
+当默认配置就够用、且你希望全应用共享一个实例时（例如只在浏览器里读写语言 Cookie 的应用），可以用它。
+
+**多租户 SSR 服务端不要用它。** 该实例的生命周期是整个进程，且始终读取 `'user_locale'` 这个 Cookie，某个请求读到的语言会泄漏到其他所有请求。服务端请改用按请求创建的实例：`createLocalePref({ storage: cookieAdapter({ cookieString }) })`（见 [服务端渲染（SSR）](#服务端渲染ssr)）。同理，当应用中有两处会争抢同一个 `'user_locale'` key 时，也应避免使用它。
+
 ### `LocalePref` 实例
 
 ```ts

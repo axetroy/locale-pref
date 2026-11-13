@@ -48,6 +48,10 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
 - `Intl.Locale` is a hard requirement. `normalizeLocale` / `isRegion` /
   `detectNavigatorLocale` must throw an actionable error when it is missing
   (never degrade to `null`/`false`). Invalid _input_ still returns `null`/`false`.
+- `getDefaultLocalePref()` is a lazy process-wide singleton created on first
+  call (never at module top level, to keep `sideEffects: false`). It must stay
+  documented as unsafe for multi-tenant SSR; per-request `createLocalePref()` is
+  the supported server pattern.
 - Coverage thresholds (see `vitest.config.ts`): lines/statements/functions 90,
   branches 85. The suite currently sits at 100%.
 - Public API changes require a matching `README.md` update and a changeset.
@@ -55,12 +59,13 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
 ## Layout
 
 ```
-src/index.ts        createLocalePref factory, re-exports
+src/index.ts        createLocalePref / getDefaultLocalePref, re-exports
 src/adapters/       cookie.ts, localStorage.ts, memory.ts
 src/global.ts       getGlobal(): globalThis -> self -> window fallback
 src/utils.ts        isRegion / normalizeLocale / detectNavigatorLocale
 src/types.ts        public interfaces (excluded from coverage)
 test/               Vitest suites, one file per source area
+                    (getLocale / setLocale / utils / global / default-instance)
 scripts/            CI helpers (dependency guard, entry-point smoke test)
 ```
 

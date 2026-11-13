@@ -72,6 +72,15 @@ interface LocalePrefOptions {
 - 所有选项都有默认值，`createLocalePref()` 无参可调用。
 - 对非法选项值（如 `storage` 不是对象、`fallback` 不是数组）应抛出 `TypeError`，并在消息中指明字段名。
 
+### 3.1.1 便捷默认实例
+```typescript
+function getDefaultLocalePref(): LocalePref;
+```
+- 返回**惰性创建、进程级共享**的实例，等价于无参 `createLocalePref()`。
+- **不得**在模块顶层调用：那样会破坏 `sideEffects: false`。必须在首次调用函数时才创建并缓存。
+- 用于默认配置够用的场景（典型为浏览器应用）。**多租户 SSR 服务端不得使用**：进程级共享 + 固定 `'user_locale'` key 会导致跨请求语言泄漏；服务端应按请求 `createLocalePref({ storage: cookieAdapter({ cookieString }) })`。
+- README 必须写明上述限制。
+
 ### 3.2 实例接口
 
 ```typescript
@@ -287,7 +296,7 @@ locale-pref/
 ├── package.json
 ├── tsconfig.json
 ├── src/
-│   ├── index.ts          # createLocalePref + 适配器导出
+│   ├── index.ts          # createLocalePref / getDefaultLocalePref + 适配器导出
 │   ├── adapters/
 │   │   ├── cookie.ts
 │   │   ├── localStorage.ts
@@ -401,6 +410,7 @@ locale-pref/
 5. `cookieAdapter` 在 Node 环境只读的说明。
 6. 自定义适配器示例。
 7. 浏览器兼容性说明（依赖 `Intl.Locale`，列出精确版本下限、polyfill 名称与引入方式、缺失时的抛错行为，见 §6.4）。
+8. `getDefaultLocalePref` 说明（惰性单例、等价于无参 `createLocalePref()`，并显式写出**多租户 SSR 不得使用**的理由，见 §3.1.1）。
 
 ---
 
