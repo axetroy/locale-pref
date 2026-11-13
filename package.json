@@ -12,6 +12,7 @@
     "navigator",
     "cookie",
     "localstorage",
+    "sessionstorage",
     "ssr"
   ],
   "license": "MIT",

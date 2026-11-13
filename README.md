@@ -231,7 +231,7 @@ isRegion('not a tag!!', 'CN'); // false — never throws
 ### `getLocaleSync` requires a synchronous adapter
 
 `getLocaleSync` only works with an adapter that sets `isSync: true`. The built-in
-`cookieAdapter`, `localStorageAdapter`, and `memoryAdapter` all do. Calling it
+`cookieAdapter`, `localStorageAdapter`, `sessionStorageAdapter`, and `memoryAdapter` all do. Calling it
 with an asynchronous adapter (one without `isSync`) throws:
 
 ```
@@ -274,6 +274,42 @@ Uses `globalThis.localStorage` by default. Throws at creation time if no storage
 object is supplied and the environment has none. `set` ignores
 `StorageSetOptions`. `isSync: true`.
 
+### `sessionStorageAdapter(options?)`
+
+Same shape as `localStorageAdapter`, backed by `globalThis.sessionStorage`
+(or a `storage` you pass in). Throws at creation time when unavailable.
+`isSync: true`.
+
+`sessionStorage` is scoped to the current tab and cleared when the tab closes,
+so it fits a per-session override that should not outlive the tab — but it is a
+poor fit for the user's durable preference. The adapter is a plain synchronous
+adapter: the fallback chain does not consult it for you, so choose the behavior
+you want explicitly. A common pattern is a session override on top of a durable
+cookie, which you express as a small custom adapter:
+
+```ts
+import { createLocalePref, cookieAdapter, sessionStorageAdapter, type StorageAdapter } from 'locale-pref';
+
+const durable = cookieAdapter();
+const session = sessionStorageAdapter();
+
+// Session value wins; fall back to the durable cookie when the tab has none.
+const storage: StorageAdapter = {
+  isSync: true,
+  get: (key) => session.get(key) ?? durable.get(key),
+  set: (key, value, options) => {
+    session.set(key, value);
+    durable.set(key, value, options);
+  },
+  remove: (key) => {
+    session.remove(key);
+    durable.remove(key);
+  },
+};
+
+const pref = createLocalePref({ storage, fallback: ['en'], defaultLocale: 'en' });
+```
+
 ### `memoryAdapter(initial?)`
 
 A `Map`-backed adapter for tests and short-lived Node processes. Seed it with
@@ -303,6 +339,34 @@ const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
 
 For a synchronous backend (for example a cookie in a server framework), add
 `isSync: true` to enable `getLocaleSync`.
+
+### How asynchronous adapters are handled
+
+Async is a first-class case, not an afterthought. An adapter is asynchronous when
+it omits `isSync` (or sets it to `false`) and its methods return promises.
+
+| Call                | Behavior with an async adapter                                              |
+| ------------------- | --------------------------------------------------------------------------- |
+| `getLocale()`       | Awaits `storage.get`.                                                       |
+| `setLocale()`       | Awaits `storage.set` before resolving.                                      |
+| `clearLocale()`     | Awaits `storage.remove` before resolving.                                   |
+| `isCurrentRegion()` | Awaits the underlying `getLocale()`.                                        |
+| `getLocaleSync()`   | **Throws** `Error: getLocaleSync() requires a synchronous storage adapter`. |
+
+Three rules to rely on:
+
+- **Rejections from `get` do not throw.** A rejected (or throwing) `storage.get`
+  is reported to `onError` with context `'storage'` and the chain continues to
+  the next fallback source, exactly like a sync adapter that throws.
+- **Rejections from `set` / `remove` propagate.** A failed write or delete
+  rejects the returned promise, so you can retry or surface it. The library does
+  not swallow them.
+- **`getLocaleSync()` is unavailable.** There is no synchronous escape hatch for
+  an async backend; use `getLocale()` and `await` it. Only set `isSync: true`
+  when the methods genuinely return values synchronously. If you set it on an
+  async adapter, `getLocaleSync()` reads a `Promise` where a `string` is
+  expected and treats the stored value as a miss — it silently falls through to
+  the fallback chain rather than returning the stored tag.
 
 ```ts
 interface StorageAdapter {
@@ -340,7 +404,8 @@ CommonJS consumers can still load the package with a dynamic `import()`.
 Every other API the library touches is far older than `Intl.Locale` and never
 becomes the limiting factor: `navigator.languages` (Chrome 37 / Firefox 32 /
 Safari 10.1), `Map` (Chrome 38), `Promise` (Chrome 32), `Object.entries`
-(Chrome 54), and `document.cookie` / `localStorage` (all browsers). `globalThis`
+(Chrome 54), and `document.cookie` / `localStorage` / `sessionStorage` (all
+browsers). `globalThis`
 (Chrome 71 / Firefox 65 / Safari 12.1) is resolved through a fallback chain
 (`globalThis` → `self` → `window`), so its absence is not fatal either.
 

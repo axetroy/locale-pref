@@ -194,7 +194,7 @@ isRegion('not a tag!!', 'CN'); // false —— 永不抛错
 
 ### `getLocaleSync` 需要同步适配器
 
-`getLocaleSync` 只能用于设置了 `isSync: true` 的适配器。内置的 `cookieAdapter`、`localStorageAdapter` 和 `memoryAdapter` 都满足该条件。对异步适配器（未设置 `isSync`）调用它会抛出：
+`getLocaleSync` 只能用于设置了 `isSync: true` 的适配器。内置的 `cookieAdapter`、`localStorageAdapter`、`sessionStorageAdapter` 和 `memoryAdapter` 都满足该条件。对异步适配器（未设置 `isSync`）调用它会抛出：
 
 ```
 Error: getLocaleSync() requires a synchronous storage adapter
@@ -228,6 +228,35 @@ Error: cookieAdapter is read-only in Node.js environment
 
 默认使用 `globalThis.localStorage`。若未传入存储对象且环境没有 `localStorage`，则在创建时抛错。`set` 会忽略 `StorageSetOptions`。`isSync: true`。
 
+### `sessionStorageAdapter(options?)`
+
+形态与 `localStorageAdapter` 相同，默认基于 `globalThis.sessionStorage`（也可传入自己的 `storage`）。不可用时在创建时抛错。`isSync: true`。
+
+`sessionStorage` 的作用域是当前标签页，关闭标签页即清空：适合「仅本次会话生效」的临时覆盖，但**不适合**作为用户的持久偏好。该适配器只是普通的同步适配器，回退链**不会**自动去读它，因此要显式选择行为。常见做法是在持久 Cookie 之上叠加会话覆盖，用一个小型自定义适配器实现：
+
+```ts
+import { createLocalePref, cookieAdapter, sessionStorageAdapter, type StorageAdapter } from 'locale-pref';
+
+const durable = cookieAdapter();
+const session = sessionStorageAdapter();
+
+// 会话值优先；标签页内没有时回退到持久 Cookie。
+const storage: StorageAdapter = {
+  isSync: true,
+  get: (key) => session.get(key) ?? durable.get(key),
+  set: (key, value, options) => {
+    session.set(key, value);
+    durable.set(key, value, options);
+  },
+  remove: (key) => {
+    session.remove(key);
+    durable.remove(key);
+  },
+};
+
+const pref = createLocalePref({ storage, fallback: ['en'], defaultLocale: 'en' });
+```
+
 ### `memoryAdapter(initial?)`
 
 基于 `Map` 的适配器，用于测试和短生命周期 Node 进程。可用 `memoryAdapter({ user_locale: 'zh-CN' })` 预置数据。`isSync: true`。
@@ -255,6 +284,24 @@ const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
 ```
 
 对于同步后端（例如服务端框架中的 cookie），加上 `isSync: true` 即可启用 `getLocaleSync`。
+
+### 异步适配器的处理方式
+
+异步是一等公民，而非事后补丁。当适配器**未设置 `isSync`**（或设为 `false`）且方法返回 Promise 时，它就是异步适配器。
+
+| 调用                | 异步适配器下的行为                                                         |
+| ------------------- | -------------------------------------------------------------------------- |
+| `getLocale()`       | 等待 `storage.get`。                                                       |
+| `setLocale()`       | 等待 `storage.set` 完成后才 resolve。                                      |
+| `clearLocale()`     | 等待 `storage.remove` 完成后才 resolve。                                   |
+| `isCurrentRegion()` | 等待内部的 `getLocale()`。                                                 |
+| `getLocaleSync()`   | **抛错** `Error: getLocaleSync() requires a synchronous storage adapter`。 |
+
+可依赖的三条规则：
+
+- **`get` 的 reject 不会向上抛。** `storage.get` 抛错或被 reject 时，会以 `context: 'storage'` 传给 `onError`，并继续回退链，行为与同步适配器抛错一致。
+- **`set` / `remove` 的 reject 会向上传播。** 写入或删除失败会让返回的 Promise reject，便于重试或上报；库不会吞掉它。
+- **`getLocaleSync()` 不可用。** 异步后端没有同步逃生口，请改用 `getLocale()` 并 `await`。只有当方法确实同步返回时才设 `isSync: true`；若给异步适配器设了它，`getLocaleSync()` 会把 `Promise` 当成 `string` 处理，结果把存储值判为未命中，静默回退到回退链，而不是返回已存的语言。
 
 ```ts
 interface StorageAdapter {
@@ -288,7 +335,7 @@ interface StorageSetOptions {
 
 CommonJS 使用方仍可通过动态 `import()` 加载本包。
 
-库用到的其他 API 都比 `Intl.Locale` 老得多，不会成为限制：`navigator.languages`（Chrome 37 / Firefox 32 / Safari 10.1）、`Map`（Chrome 38）、`Promise`（Chrome 32）、`Object.entries`（Chrome 54），以及 `document.cookie` / `localStorage`（所有浏览器）。`globalThis`（Chrome 71 / Firefox 65 / Safari 12.1）通过回退链解析（`globalThis` → `self` → `window`），因此即使缺失也不会致命。
+库用到的其他 API 都比 `Intl.Locale` 老得多，不会成为限制：`navigator.languages`（Chrome 37 / Firefox 32 / Safari 10.1）、`Map`（Chrome 38）、`Promise`（Chrome 32）、`Object.entries`（Chrome 54），以及 `document.cookie` / `localStorage` / `sessionStorage`（所有浏览器）。`globalThis`（Chrome 71 / Firefox 65 / Safari 12.1）通过回退链解析（`globalThis` → `self` → `window`），因此即使缺失也不会致命。
 
 ### 用 polyfill 兼容更老的浏览器
 

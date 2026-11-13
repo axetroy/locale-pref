@@ -2,7 +2,14 @@
 // `exports` map, so a broken build or entry point fails CI rather than a
 // downstream user.
 import assert from 'node:assert/strict';
-import { createLocalePref, cookieAdapter, getDefaultLocalePref, localStorageAdapter, memoryAdapter } from 'locale-pref';
+import {
+  createLocalePref,
+  cookieAdapter,
+  getDefaultLocalePref,
+  localStorageAdapter,
+  memoryAdapter,
+  sessionStorageAdapter,
+} from 'locale-pref';
 import { detectNavigatorLocale, isRegion, normalizeLocale } from 'locale-pref/utils';
 
 const pref = createLocalePref({ storage: memoryAdapter(), fallback: ['en'], defaultLocale: 'en-US' });
@@ -16,10 +23,27 @@ assert.equal(normalizeLocale('!!'), null, 'normalizeLocale rejects a malformed t
 assert.equal(cookieAdapter({ cookieString: 'a=b' }).isSync, true, 'cookieAdapter is synchronous');
 assert.equal(memoryAdapter({ k: 'v' }).get('k'), 'v', 'memoryAdapter round-trips');
 assert.equal(typeof localStorageAdapter, 'function', 'localStorageAdapter is exported');
+assert.equal(typeof sessionStorageAdapter, 'function', 'sessionStorageAdapter is exported');
 
 // The lazy default instance is created on first call and then reused.
 assert.equal(getDefaultLocalePref(), getDefaultLocalePref(), 'getDefaultLocalePref caches one instance');
 assert.equal(getDefaultLocalePref().storage.isSync, true, 'the default instance uses a sync adapter');
+
+// A fully asynchronous backend flows through getLocale/setLocale/clearLocale.
+{
+  const store = new Map([['user_locale', 'nl-NL']]);
+  const asyncPref = createLocalePref({
+    storage: {
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => void store.set(key, value),
+      remove: async (key) => void store.delete(key),
+    },
+  });
+  assert.equal(await asyncPref.getLocale(), 'nl-NL', 'getLocale awaits an async adapter');
+  await asyncPref.setLocale('de-DE');
+  assert.equal(store.get('user_locale'), 'de-DE', 'setLocale awaits an async adapter');
+  assert.throws(() => asyncPref.getLocaleSync(), /synchronous storage adapter/, 'getLocaleSync rejects async adapters');
+}
 
 // detectNavigatorLocale must never throw regardless of environment.
 const detected = detectNavigatorLocale();

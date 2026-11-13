@@ -52,6 +52,12 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
   call (never at module top level, to keep `sideEffects: false`). It must stay
   documented as unsafe for multi-tenant SSR; per-request `createLocalePref()` is
   the supported server pattern.
+- Adapters are sync when `isSync === true`, otherwise async. `getLocale` /
+  `setLocale` / `clearLocale` / `isCurrentRegion` must `await` adapter results so
+  both work. A `get` rejection is reported to `onError` and falls through; `set`
+  / `remove` rejections propagate. `localStorageAdapter` and
+  `sessionStorageAdapter` share `webStorageAdapter()` in
+  `src/adapters/webStorage.ts`.
 - Coverage thresholds (see `vitest.config.ts`): lines/statements/functions 90,
   branches 85. The suite currently sits at 100%.
 - Public API changes require a matching `README.md` update and a changeset.
@@ -60,12 +66,13 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
 
 ```
 src/index.ts        createLocalePref / getDefaultLocalePref, re-exports
-src/adapters/       cookie.ts, localStorage.ts, memory.ts
+src/adapters/       cookie.ts, localStorage.ts, sessionStorage.ts, webStorage.ts, memory.ts
 src/global.ts       getGlobal(): globalThis -> self -> window fallback
 src/utils.ts        isRegion / normalizeLocale / detectNavigatorLocale
 src/types.ts        public interfaces (excluded from coverage)
 test/               Vitest suites, one file per source area
-                    (getLocale / setLocale / utils / global / default-instance)
+                    (getLocale / setLocale / utils / global / default-instance /
+                    async-adapter / localStorage / sessionStorage / cookie)
 scripts/            CI helpers (dependency guard, entry-point smoke test)
 ```
 

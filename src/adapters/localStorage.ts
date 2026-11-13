@@ -1,5 +1,6 @@
 import type { StorageAdapter } from '../types.js';
 import { getGlobal } from '../global.js';
+import { webStorageAdapter } from './webStorage.js';
 
 export interface LocalStorageAdapterOptions {
   /** Storage object to use. Defaults to `globalThis.localStorage`. */
@@ -16,17 +17,5 @@ export function localStorageAdapter(options: LocalStorageAdapterOptions = {}): S
   if (!storage) {
     throw new Error('localStorage is not available in this environment');
   }
-
-  return {
-    isSync: true,
-    get(key) {
-      return storage.getItem(key);
-    },
-    set(key, value) {
-      storage.setItem(key, value);
-    },
-    remove(key) {
-      storage.removeItem(key);
-    },
-  };
+  return webStorageAdapter(storage);
 }

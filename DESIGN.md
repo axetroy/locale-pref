@@ -164,6 +164,18 @@ interface StorageSetOptions {
 }
 ```
 
+#### 3.3.1 同步与异步的判定
+
+- 适配器 **`isSync === true`** → 同步适配器；否则为异步适配器（无论方法实际是否返回 Promise）。
+- 异步适配器在 `getLocale` / `setLocale` / `clearLocale` / `isCurrentRegion` 中一律 `await`，语义与同步适配器一致。
+- 异步适配器调用 `getLocaleSync()` 抛 `Error`，消息为 `"getLocaleSync() requires a synchronous storage adapter"`。
+- 误把异步适配器标记为 `isSync: true` 时，`getLocaleSync()` 会把 `Promise` 当作 `string` 处理，`resolveCandidate` 因 `typeof value !== 'string'` 判为未命中，从而静默走回退链。文档需提示该陷阱。
+
+#### 3.3.2 异步错误语义
+
+- `storage.get` 抛错或 reject → 以 `context: 'storage'` 调用 `onError`，随后继续回退链（与同步抛错一致，**不**向上抛）。
+- `storage.set` / `storage.remove` 抛错或 reject → 让 `setLocale` / `clearLocale` 返回的 Promise **reject**，由调用方处理。库不吞错，也不重试。
+
 ---
 
 ## 4. 内置适配器
@@ -205,7 +217,24 @@ function localStorageAdapter(options?: {
 - `isSync`: `true`。
 - 内部捕获 `localStorage` 的 `QuotaExceededError` 等异常并原样抛出（由上层 `onError` 处理）。
 
-### 4.3 `memoryAdapter`
+### 4.3 `sessionStorageAdapter`
+
+```typescript
+function sessionStorageAdapter(options?: {
+  storage?: Storage;
+}): StorageAdapter;
+```
+
+**行为**：
+- 与 `localStorageAdapter` 同构，底层为 `globalThis.sessionStorage`。
+- 若环境无 `sessionStorage` 且未传 `storage`，**创建时抛错**，消息为 `"sessionStorage is not available in this environment"`。
+- 忽略 `StorageSetOptions`；异常原样抛出。
+- `isSync`: `true`。
+- 二者共用内部 `webStorageAdapter(storage)` 辅助函数（`src/adapters/webStorage.ts`），避免重复实现。
+
+**语义**：`sessionStorage` 作用域为当前标签页，关闭即清空。适合「仅本次会话」的临时覆盖，不适合持久偏好。库**不会**自动把 session 值纳入回退链；如需「会话覆盖 + 持久兜底」，由使用方组合自定义适配器（见 README）。
+
+### 4.4 `memoryAdapter`
 
 ```typescript
 function memoryAdapter(initial?: Record<string, string>): StorageAdapter;
@@ -300,6 +329,8 @@ locale-pref/
 │   ├── adapters/
 │   │   ├── cookie.ts
 │   │   ├── localStorage.ts
+│   │   ├── sessionStorage.ts
+│   │   ├── webStorage.ts      # localStorage/sessionStorage 共用的 Storage 适配
 │   │   └── memory.ts
 │   ├── utils.ts          # isRegion / normalizeLocale / detectNavigatorLocale
 │   └── types.ts
@@ -307,6 +338,8 @@ locale-pref/
 │   ├── utils.test.ts
 │   ├── cookie.test.ts
 │   ├── localStorage.test.ts
+│   ├── sessionStorage.test.ts
+│   ├── async-adapter.test.ts
 │   ├── getLocale.test.ts
 │   └── setLocale.test.ts
 └── README.md
@@ -394,7 +427,21 @@ locale-pref/
 - 传入 mock `Storage` → 读写往返。
 - 忽略 `StorageSetOptions`。
 
-### 8.7 边界
+### 8.7 `sessionStorageAdapter`
+- 无 `sessionStorage` 且未传 `storage` → 创建时抛错（消息含 `sessionStorage`）。
+- 传入 mock `Storage` → 读写往返。
+- 忽略 `StorageSetOptions`；`isSync: true`；异常原样抛出。
+
+### 8.8 异步适配器
+- 全异步适配器（无 `isSync`）：`getLocale` 解析出存储值。
+- `setLocale` 等待写入完成，后续 `getLocale` 能读到新值。
+- `clearLocale` 等待删除完成。
+- `isCurrentRegion` 基于异步 `getLocale` 正确判断。
+- `storage.get` reject → 以 `'storage'` 调用 `onError` 并继续回退。
+- `storage.set` / `storage.remove` reject → `setLocale` / `clearLocale` 的 Promise reject。
+- 无 `isSync` 的适配器调用 `getLocaleSync()` → 抛错。
+
+### 8.9 边界
 - `createLocalePref({ fallback: [] })` 合法，回退直接到 `defaultLocale`。
 - `createLocalePref({ storage: 'not-an-object' })` → `TypeError`。
 - `storageKey` 含特殊字符（如 `a.b`）在 cookie 中正确存取。
@@ -408,9 +455,10 @@ locale-pref/
 3. **`isRegion` 语义说明**（第 6.3 节内容，必须显式写出“不用于推断用户位置”）。
 4. `getLocaleSync` 的限制说明。
 5. `cookieAdapter` 在 Node 环境只读的说明。
-6. 自定义适配器示例。
+6. 自定义适配器示例（含**异步适配器**的完整语义：何时 `await`、`get` reject 不抛/`set`·`remove` reject 传播、`getLocaleSync` 抛错，以及误标 `isSync` 的陷阱）。
 7. 浏览器兼容性说明（依赖 `Intl.Locale`，列出精确版本下限、polyfill 名称与引入方式、缺失时的抛错行为，见 §6.4）。
 8. `getDefaultLocalePref` 说明（惰性单例、等价于无参 `createLocalePref()`，并显式写出**多租户 SSR 不得使用**的理由，见 §3.1.1）。
+9. 内置适配器一览：`cookieAdapter` / `localStorageAdapter` / `sessionStorageAdapter` / `memoryAdapter`，并说明 `sessionStorage` 为「仅本次会话」语义、不自动纳入回退链。
 
 ---
 

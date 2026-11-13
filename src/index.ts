@@ -183,7 +183,9 @@ export function getDefaultLocalePref(): LocalePref {
 
 export { cookieAdapter } from './adapters/cookie.js';
 export { localStorageAdapter } from './adapters/localStorage.js';
+export { sessionStorageAdapter } from './adapters/sessionStorage.js';
 export { memoryAdapter } from './adapters/memory.js';
 export type { CookieAdapter, CookieAdapterOptions } from './adapters/cookie.js';
 export type { LocalStorageAdapterOptions } from './adapters/localStorage.js';
+export type { SessionStorageAdapterOptions } from './adapters/sessionStorage.js';
 export type { LocalePref, LocalePrefOptions, StorageAdapter, StorageSetOptions } from './types.js';

@@ -4,6 +4,7 @@
 export interface GlobalScope {
   navigator?: { languages?: unknown };
   localStorage?: Storage;
+  sessionStorage?: Storage;
 }
 
 /**
