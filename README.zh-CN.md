@@ -12,6 +12,16 @@
 
 它是纯 ESM、零运行时依赖，同时支持浏览器与 Node.js（含 SSR）。
 
+**默认的读写都是同步的。** 所有内置适配器（`cookieAdapter`、`localStorageAdapter`、`sessionStorageAdapter`、`memoryAdapter`）都是同步的，因此 `*Sync` 方法是最短路径，无需 `await`：
+
+```ts
+const pref = createLocalePref();
+pref.setLocaleSync('zh-CN');
+pref.getLocaleSync(); // 'zh-CN'
+```
+
+异步后端同样是一等公民。如果你的适配器返回 Promise，请使用返回 `Promise` 的方法并 `await`——参见[使用异步后端](#使用异步后端)。
+
 ## 安装
 
 ```sh
@@ -29,11 +39,11 @@ import { createLocalePref } from 'locale-pref';
 
 const pref = createLocalePref();
 
-const locale = await pref.getLocale(); // 例如 'zh-CN'
-await pref.setLocale('en-US'); // 写入 cookie，下次请求即可读取
+const locale = pref.getLocaleSync(); // 例如 'zh-CN'
+pref.setLocaleSync('en-US'); // 写入 cookie，下次请求即可读取
 ```
 
-默认适配器是 `cookieAdapter()`，当服务端在渲染时需要知道语言时，这是最合适的选择。
+默认适配器是 `cookieAdapter()`，当服务端在渲染时需要知道语言时，这是最合适的选择。它是同步的，因此 `getLocaleSync()` / `setLocaleSync()` 无需 `await`。
 
 ### 浏览器 + `localStorage`
 
@@ -47,9 +57,37 @@ const pref = createLocalePref({
   defaultLocale: 'en',
 });
 
+const locale = pref.getLocaleSync();
+pref.setLocaleSync('fr-CA');
+```
+
+### 使用异步后端
+
+当语言存放在异步 API 之后——Redis、IndexedDB、`fetch` 调用——请用返回 `Promise` 的方法实现适配器，并且不要设置 `isSync`。然后使用返回 `Promise` 的方法并 `await`：
+
+```ts
+import { createLocalePref } from 'locale-pref';
+import type { StorageAdapter } from 'locale-pref';
+
+const storage: StorageAdapter = {
+  async get(key) {
+    return (await redis.get(key)) ?? null;
+  },
+  async set(key, value) {
+    await redis.set(key, value);
+  },
+  async remove(key) {
+    await redis.del(key);
+  },
+};
+
+const pref = createLocalePref({ storage });
+
 const locale = await pref.getLocale();
 await pref.setLocale('fr-CA');
 ```
+
+配合异步适配器时，`*Sync` 方法会抛错，因为此时不存在可同步读写的值。参见[异步适配器的处理方式](#异步适配器的处理方式)。
 
 ### 服务端渲染（SSR）
 
@@ -98,7 +136,7 @@ export function resolveRequestLocale(cookieHeader: string | undefined): string {
 import { getDefaultLocalePref } from 'locale-pref';
 
 const pref = getDefaultLocalePref(); // 每次调用都是同一个实例
-await pref.setLocale('zh-CN');
+pref.setLocaleSync('zh-CN');
 ```
 
 当默认配置就够用、且你希望全应用共享一个实例时（例如只在浏览器里读写语言 Cookie 的应用），可以用它。
@@ -107,23 +145,30 @@ await pref.setLocale('zh-CN');
 
 ### `LocalePref` 实例
 
+每个读取与写入都有同步形式与返回 `Promise` 的形式。下面把同步方法放在前面，因为对内置（同步）适配器而言它们是最短路径。
+
 ```ts
 interface LocalePref {
-  getLocale(): Promise<string>;
+  // 同步 —— 需要同步适配器（所有内置适配器都满足）。
   getLocaleSync(): string;
-  setLocale(locale: string): Promise<void>;
   setLocaleSync(locale: string): void;
-  clearLocale(): Promise<void>;
   clearLocaleSync(): void;
-  isRegion(locale: string, region: string): boolean;
-  isCurrentRegion(region: string): Promise<boolean>;
   isCurrentRegionSync(region: string): boolean;
+
+  // 异步 —— 用于返回 Promise 的适配器，或想让两种适配器共用同一条代码路径。
+  getLocale(): Promise<string>;
+  setLocale(locale: string): Promise<void>;
+  clearLocale(): Promise<void>;
+  isCurrentRegion(region: string): Promise<boolean>;
+
+  // 与适配器类型无关。
+  isRegion(locale: string, region: string): boolean;
   normalizeLocale(locale: string): string | null;
   readonly storage: StorageAdapter;
 }
 ```
 
-#### `getLocale(): Promise<string>`
+#### `getLocaleSync(): string`
 
 按回退链顺序返回第一个合法的语言标签：
 
@@ -135,38 +180,44 @@ interface LocalePref {
 
 当 `normalize` 为 `true` 时，每个候选值都会经过 `normalizeLocale`；返回 `null` 视为未命中，继续回退。若最终的 `defaultLocale` 非法，则返回 `'en'`。若适配器的 `get` 抛错，错误会被捕获，并以 `context === 'storage'` 上报给 `onError`，然后继续回退。
 
-#### `getLocaleSync(): string`
-
-解析逻辑与 `getLocale` 相同，只是不带 `Promise`。仅可用于同步适配器。参见[限制说明](#getlocalesync-需要同步适配器)。
-
-#### `setLocale(locale: string): Promise<void>`
-
-持久化语言。当 `normalize` 为 `true` 时，标签会先被规范化，非法标签会抛出 `RangeError`。写入方式为
-`storage.set(storageKey, value, storageSetOptions)`。
+仅可用于同步适配器。参见[限制说明](#sync-方法需要同步适配器)。
 
 #### `setLocaleSync(locale: string): void`
 
-`setLocale` 的同步版本：校验与 `storage.set(...)` 调用完全相同，但不返回任何值，失败时直接抛错而非 reject。仅可用于同步适配器。参见[同步适配器的写入](#同步适配器会让写入也变同步吗)。
-
-#### `clearLocale(): Promise<void>`
-
-移除已存储的语言（`storage.remove(storageKey)`），因此下一次 `getLocale()` 会重新走一遍回退链。
+持久化语言。当 `normalize` 为 `true` 时，标签会先被规范化，非法标签会抛出 `RangeError`。写入方式为
+`storage.set(storageKey, value, storageSetOptions)`。不返回任何值；失败时抛错，因此当写入可能失败时（配额、存储被禁用）请用 `try`/`catch` 包裹。仅可用于同步适配器。
 
 #### `clearLocaleSync(): void`
 
-`clearLocale` 的同步版本。仅可用于同步适配器。
+移除已存储的语言（`storage.remove(storageKey)`），因此下一次 `getLocaleSync()` 会重新走一遍回退链。仅可用于同步适配器。
 
-#### `isRegion(locale: string, region: string): boolean`
+#### `isCurrentRegionSync(region: string): boolean`
 
-返回语言标签是否携带指定的地区子标签。永不抛错：非法输入返回 `false`。比较不区分大小写。参见 [`isRegion` 语义](#isregion-语义)。
+等价于 `isRegion(getLocaleSync(), region)`。仅可用于同步适配器。
+
+#### 异步方法
+
+下面四个方法返回 `Promise`。当适配器的方法返回 Promise 时（未设置 `isSync`，或设为 `false`），或希望两种适配器共用同一条代码路径时使用它们。
+
+#### `getLocale(): Promise<string>`
+
+`getLocaleSync` 的异步版本，解析逻辑相同。
+
+#### `setLocale(locale: string): Promise<void>`
+
+`setLocaleSync` 的异步版本。校验与 `storage.set(...)` 调用相同；失败时 reject 返回的 Promise 而非抛错。
+
+#### `clearLocale(): Promise<void>`
+
+`clearLocaleSync` 的异步版本。
 
 #### `isCurrentRegion(region: string): Promise<boolean>`
 
 等价于 `isRegion(await getLocale(), region)`。
 
-#### `isCurrentRegionSync(region: string): boolean`
+#### `isRegion(locale: string, region: string): boolean`
 
-等价于 `isRegion(getLocaleSync(), region)`。仅可用于同步适配器。
+返回语言标签是否携带指定的地区子标签。永不抛错：非法输入返回 `false`。比较不区分大小写。该方法对两种适配器都是同步的。参见 [`isRegion` 语义](#isregion-语义)。
 
 #### `normalizeLocale(locale: string): string | null`
 
@@ -207,15 +258,16 @@ isRegion('en-US', 'us'); // true —— 不区分大小写
 isRegion('not a tag!!', 'CN'); // false —— 永不抛错
 ```
 
-### `getLocaleSync` 需要同步适配器
+### `*Sync` 方法需要同步适配器
 
-`getLocaleSync` 只能用于设置了 `isSync: true` 的适配器。内置的 `cookieAdapter`、`localStorageAdapter`、`sessionStorageAdapter` 和 `memoryAdapter` 都满足该条件。对异步适配器（未设置 `isSync`）调用它会抛出：
+`getLocaleSync`、`setLocaleSync`、`clearLocaleSync`、`isCurrentRegionSync` 只能用于设置了 `isSync: true` 的适配器。内置的 `cookieAdapter`、`localStorageAdapter`、`sessionStorageAdapter` 和 `memoryAdapter` 都满足该条件。对异步适配器（未设置 `isSync`）调用 `*Sync` 方法会抛出：
 
 ```
 Error: getLocaleSync() requires a synchronous storage adapter
+Error: setLocaleSync() requires a synchronous storage adapter
 ```
 
-如果你的适配器可以同步实现，请设置 `isSync: true`；否则请使用 `getLocale()`。
+消息中会带上你调用的方法名。如果你的适配器可以同步实现，请设置 `isSync: true`；否则请使用返回 `Promise` 的方法并 `await`。
 
 ### 同步适配器会让写入也变同步吗？
 
@@ -230,13 +282,7 @@ pref.isCurrentRegionSync('CN'); // true
 pref.clearLocaleSync();
 ```
 
-每个 `*Sync` 方法都要求同步适配器（`isSync: true`），否则抛错，与 `getLocaleSync` 一致：
-
-```
-Error: setLocaleSync() requires a synchronous storage adapter
-```
-
-**为什么需要这些同步方法。** 返回 `Promise` 的方法仍是默认选择，配合异步适配器时也仍然正确。但当整条流程本就是同步的时候，悬空的 `Promise` 就是噪音：TypeScript 和 `@typescript-eslint/no-floating-promises`（`recommendedTypeChecked` 的一部分）会要求你 `await` 它，或用 `void` 显式忽略——尽管写入其实早已完成。而且 `await` 具有传染性——它会把所在函数变成 `async`——于是调用 `setLocale()` 的同步回调无法保持同步。`*Sync` 方法返回 `void`，无需 `await` 也无需 `void`，失败就是普通的 `throw`，用 `try`/`catch` 即可。
+**为什么需要这些同步方法。** 对同步流程来说，返回 `Promise` 就是错的：悬空的 `Promise` 会触发 `@typescript-eslint/no-floating-promises`（`recommendedTypeChecked` 的一部分），要求你 `await` 它或用 `void` 显式忽略——尽管写入其实早已完成。而且 `await` 具有传染性：它会把所在函数变成 `async`，于是调用 `setLocale()` 的同步回调无法保持同步。`*Sync` 方法返回 `void`，无需 `await` 也无需 `void`，失败就是普通的 `throw`，用 `try`/`catch` 即可。
 
 配合异步适配器、或希望同步/异步适配器共用同一条代码路径时，请用 `setLocale()` / `clearLocale()`；当适配器与周边代码都是同步的时候，请用 `*Sync` 方法。
 
@@ -321,25 +367,29 @@ const redisAdapter: StorageAdapter = {
 const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
 ```
 
-对于同步后端（例如服务端框架中的 cookie），加上 `isSync: true` 即可启用 `getLocaleSync`。
+对于同步后端（例如服务端框架中的 cookie），加上 `isSync: true` 即可启用 `*Sync` 方法（`getLocaleSync`、`setLocaleSync`、`clearLocaleSync`、`isCurrentRegionSync`）。
 
 ### 异步适配器的处理方式
 
 异步是一等公民，而非事后补丁。当适配器**未设置 `isSync`**（或设为 `false`）且方法返回 Promise 时，它就是异步适配器。
 
-| 调用                | 异步适配器下的行为                                                         |
-| ------------------- | -------------------------------------------------------------------------- |
-| `getLocale()`       | 等待 `storage.get`。                                                       |
-| `setLocale()`       | 等待 `storage.set` 完成后才 resolve。                                      |
-| `clearLocale()`     | 等待 `storage.remove` 完成后才 resolve。                                   |
-| `isCurrentRegion()` | 等待内部的 `getLocale()`。                                                 |
-| `getLocaleSync()`   | **抛错** `Error: getLocaleSync() requires a synchronous storage adapter`。 |
+| 调用                    | 异步适配器下的行为                                                               |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `getLocale()`           | 等待 `storage.get`。                                                             |
+| `setLocale()`           | 等待 `storage.set` 完成后才 resolve。                                            |
+| `clearLocale()`         | 等待 `storage.remove` 完成后才 resolve。                                         |
+| `isCurrentRegion()`     | 等待内部的 `getLocale()`。                                                       |
+| `getLocaleSync()`       | **抛错** `Error: getLocaleSync() requires a synchronous storage adapter`。       |
+| `setLocaleSync()`       | **抛错** `Error: setLocaleSync() requires a synchronous storage adapter`。       |
+| `clearLocaleSync()`     | **抛错** `Error: clearLocaleSync() requires a synchronous storage adapter`。     |
+| `isCurrentRegionSync()` | **抛错** `Error: isCurrentRegionSync() requires a synchronous storage adapter`。 |
 
-可依赖的三条规则：
+可依赖的四条规则：
 
 - **`get` 的 reject 不会向上抛。** `storage.get` 抛错或被 reject 时，会以 `context: 'storage'` 传给 `onError`，并继续回退链，行为与同步适配器抛错一致。
 - **`set` / `remove` 的 reject 会向上传播。** 写入或删除失败会让返回的 Promise reject，便于重试或上报；库不会吞掉它。
-- **`getLocaleSync()` 不可用。** 异步后端没有同步逃生口，请改用 `getLocale()` 并 `await`。只有当方法确实同步返回时才设 `isSync: true`；若给异步适配器设了它，`getLocaleSync()` 会把 `Promise` 当成 `string` 处理，结果把存储值判为未命中，静默回退到回退链，而不是返回已存的语言。
+- **`*Sync` 方法不可用。** 异步后端没有同步逃生口，请改用返回 `Promise` 的方法并 `await`。只有当方法确实同步返回时才设 `isSync: true`；若给异步适配器设了它，`getLocaleSync()` 会把 `Promise` 当成 `string` 处理，结果把存储值判为未命中，静默回退到回退链，而不是返回已存的语言。
+- **同一个适配器可服务两条路径。** `setLocale()` 与 `setLocaleSync()` 共用校验与 `storage.set(...)` 调用，区别只在错误通道（reject 与 throw）。
 
 ```ts
 interface StorageAdapter {
@@ -406,15 +456,16 @@ isRegion('zh-CN', 'CN');
 
 在默认 `normalize: true` 下受影响的入口：
 
-| 调用                              | 缺少 `Intl.Locale` 时    |
-| --------------------------------- | ------------------------ |
-| `normalizeLocale()`               | 抛错                     |
-| `isRegion()`                      | 抛错                     |
-| `getLocale()` / `getLocaleSync()` | 抛错（需要规范化标签）   |
-| `setLocale()`                     | reject（需要规范化标签） |
-| `clearLocale()`                   | 正常工作                 |
+| 调用                                   | 缺少 `Intl.Locale` 时    |
+| -------------------------------------- | ------------------------ |
+| `normalizeLocale()`                    | 抛错                     |
+| `isRegion()` / `isCurrentRegionSync()` | 抛错                     |
+| `getLocale()` / `getLocaleSync()`      | 抛错（需要规范化标签）   |
+| `setLocale()`                          | reject（需要规范化标签） |
+| `setLocaleSync()`                      | 抛错（需要规范化标签）   |
+| `clearLocale()` / `clearLocaleSync()`  | 正常工作                 |
 
-唯一的逃生口是 `normalize: false`。此时 `getLocale()` 与 `setLocale()` 可在没有 `Intl.Locale` 的情况下工作（跳过校验与规范化），但 `isRegion()` / `isCurrentRegion()` 仍然依赖它。
+唯一的逃生口是 `normalize: false`。此时 get/set 方法可在没有 `Intl.Locale` 的情况下工作（跳过校验与规范化），但 `isRegion()` / `isCurrentRegion()` / `isCurrentRegionSync()` 仍然依赖它。
 
 ## 开发
 

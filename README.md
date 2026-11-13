@@ -16,6 +16,20 @@ Zero-dependency locale preference toolkit for JavaScript and TypeScript.
 It is pure ESM, has no runtime dependencies, and works in browsers and Node.js
 (including SSR).
 
+**Reads and writes are synchronous by default.** Every built-in adapter
+(`cookieAdapter`, `localStorageAdapter`, `sessionStorageAdapter`, `memoryAdapter`)
+is synchronous, so the `*Sync` methods are the shortest path and need no `await`:
+
+```ts
+const pref = createLocalePref();
+pref.setLocaleSync('zh-CN');
+pref.getLocaleSync(); // 'zh-CN'
+```
+
+Asynchronous backends are a first-class case too. If your adapter returns
+promises, use the `Promise`-returning methods and `await` them — see
+[Working with an asynchronous backend](#working-with-an-asynchronous-backend).
+
 ## Installation
 
 ```sh
@@ -33,12 +47,13 @@ import { createLocalePref } from 'locale-pref';
 
 const pref = createLocalePref();
 
-const locale = await pref.getLocale(); // e.g. 'zh-CN'
-await pref.setLocale('en-US'); // writes a cookie, readable on the next request
+const locale = pref.getLocaleSync(); // e.g. 'zh-CN'
+pref.setLocaleSync('en-US'); // writes a cookie, readable on the next request
 ```
 
 The default adapter is `cookieAdapter()`, which is the right choice when the
-server must know the locale while rendering.
+server must know the locale while rendering. It is synchronous, so
+`getLocaleSync()` / `setLocaleSync()` need no `await`.
 
 ### Browser with `localStorage`
 
@@ -52,9 +67,41 @@ const pref = createLocalePref({
   defaultLocale: 'en',
 });
 
+const locale = pref.getLocaleSync();
+pref.setLocaleSync('fr-CA');
+```
+
+### Working with an asynchronous backend
+
+When the locale lives behind an asynchronous API — Redis, IndexedDB, a `fetch`
+call — implement the adapter with `Promise`-returning methods and omit `isSync`.
+Use the `Promise`-returning methods and `await` them:
+
+```ts
+import { createLocalePref } from 'locale-pref';
+import type { StorageAdapter } from 'locale-pref';
+
+const storage: StorageAdapter = {
+  async get(key) {
+    return (await redis.get(key)) ?? null;
+  },
+  async set(key, value) {
+    await redis.set(key, value);
+  },
+  async remove(key) {
+    await redis.del(key);
+  },
+};
+
+const pref = createLocalePref({ storage });
+
 const locale = await pref.getLocale();
 await pref.setLocale('fr-CA');
 ```
+
+The `*Sync` methods throw with an asynchronous adapter, because there is nothing
+to read or write synchronously. See
+[How asynchronous adapters are handled](#how-asynchronous-adapters-are-handled).
 
 ### Server-side rendering (SSR)
 
@@ -111,7 +158,7 @@ importing the package has no side effects.
 import { getDefaultLocalePref } from 'locale-pref';
 
 const pref = getDefaultLocalePref(); // same instance on every call
-await pref.setLocale('zh-CN');
+pref.setLocaleSync('zh-CN');
 ```
 
 Reach for it when the defaults fit and you want a single shared instance, for
@@ -126,23 +173,32 @@ parts of an app would otherwise fight over the same `'user_locale'` key.
 
 ### The `LocalePref` instance
 
+Every read and write has a synchronous form and a `Promise`-returning form. The
+synchronous methods come first below because they are the shortest path for the
+built-in (synchronous) adapters.
+
 ```ts
 interface LocalePref {
-  getLocale(): Promise<string>;
+  // Synchronous — requires a synchronous adapter (all built-ins qualify).
   getLocaleSync(): string;
-  setLocale(locale: string): Promise<void>;
   setLocaleSync(locale: string): void;
-  clearLocale(): Promise<void>;
   clearLocaleSync(): void;
-  isRegion(locale: string, region: string): boolean;
-  isCurrentRegion(region: string): Promise<boolean>;
   isCurrentRegionSync(region: string): boolean;
+
+  // Asynchronous — for a promise-returning adapter, or one code path for both.
+  getLocale(): Promise<string>;
+  setLocale(locale: string): Promise<void>;
+  clearLocale(): Promise<void>;
+  isCurrentRegion(region: string): Promise<boolean>;
+
+  // Independent of the adapter.
+  isRegion(locale: string, region: string): boolean;
   normalizeLocale(locale: string): string | null;
   readonly storage: StorageAdapter;
 }
 ```
 
-#### `getLocale(): Promise<string>`
+#### `getLocaleSync(): string`
 
 Returns the first valid tag found by walking the fallback chain:
 
@@ -158,47 +214,58 @@ a `null` result counts as a miss and the chain continues. If the final
 the error is caught, reported to `onError` with `context === 'storage'`, and the
 chain continues.
 
-#### `getLocaleSync(): string`
-
-Same resolution logic as `getLocale`, without the `Promise`. Only usable with a
-synchronous adapter. See [limitations](#getlocalesync-requires-a-synchronous-adapter).
-
-#### `setLocale(locale: string): Promise<void>`
-
-Persists the locale. When `normalize` is `true`, the tag is canonicalized first
-and an invalid tag throws a `RangeError`. Writes
-`storage.set(storageKey, value, storageSetOptions)`.
+Only usable with a synchronous adapter. See
+[limitations](#the-sync-methods-require-a-synchronous-adapter).
 
 #### `setLocaleSync(locale: string): void`
 
-The synchronous twin of `setLocale`: same validation and same
-`storage.set(...)` call, but it returns nothing and throws on failure instead of
-rejecting. Only usable with a synchronous adapter. See
-[synchronous adapters](#do-synchronous-adapters-make-writes-synchronous).
-
-#### `clearLocale(): Promise<void>`
-
-Removes the stored locale (`storage.remove(storageKey)`), so the next
-`getLocale()` walks the fallback chain again.
+Persists the locale. When `normalize` is `true`, the tag is canonicalized first
+and an invalid tag throws a `RangeError`. Writes
+`storage.set(storageKey, value, storageSetOptions)`. Returns nothing; a failure
+throws, so wrap it in `try`/`catch` if a write can fail (quota, disabled
+storage). Only usable with a synchronous adapter.
 
 #### `clearLocaleSync(): void`
 
-The synchronous twin of `clearLocale`. Only usable with a synchronous adapter.
-
-#### `isRegion(locale: string, region: string): boolean`
-
-Returns whether the language tag carries the given region subtag. Never throws:
-invalid input returns `false`. Comparison is case-insensitive. See
-[`isRegion` semantics](#isregion-semantics).
-
-#### `isCurrentRegion(region: string): Promise<boolean>`
-
-Equivalent to `isRegion(await getLocale(), region)`.
+Removes the stored locale (`storage.remove(storageKey)`), so the next
+`getLocaleSync()` walks the fallback chain again. Only usable with a synchronous
+adapter.
 
 #### `isCurrentRegionSync(region: string): boolean`
 
 Equivalent to `isRegion(getLocaleSync(), region)`. Only usable with a synchronous
 adapter.
+
+#### Asynchronous methods
+
+The following four methods return a `Promise`. Use them with an adapter whose
+methods return promises (an adapter that omits `isSync`, or sets it to `false`),
+or when you want a single code path for both kinds of adapter.
+
+#### `getLocale(): Promise<string>`
+
+The asynchronous twin of `getLocaleSync`, with the same resolution logic.
+
+#### `setLocale(locale: string): Promise<void>`
+
+The asynchronous twin of `setLocaleSync`. Same validation and the same
+`storage.set(...)` call; a failure rejects the returned promise instead of
+throwing.
+
+#### `clearLocale(): Promise<void>`
+
+The asynchronous twin of `clearLocaleSync`.
+
+#### `isCurrentRegion(region: string): Promise<boolean>`
+
+Equivalent to `isRegion(await getLocale(), region)`.
+
+#### `isRegion(locale: string, region: string): boolean`
+
+Returns whether the language tag carries the given region subtag. Never throws:
+invalid input returns `false`. Comparison is case-insensitive. This method is
+synchronous for both kinds of adapter. See
+[`isRegion` semantics](#isregion-semantics).
 
 #### `normalizeLocale(locale: string): string | null`
 
@@ -247,18 +314,20 @@ isRegion('en-US', 'us'); // true — case-insensitive
 isRegion('not a tag!!', 'CN'); // false — never throws
 ```
 
-### `getLocaleSync` requires a synchronous adapter
+### The `*Sync` methods require a synchronous adapter
 
-`getLocaleSync` only works with an adapter that sets `isSync: true`. The built-in
-`cookieAdapter`, `localStorageAdapter`, `sessionStorageAdapter`, and `memoryAdapter` all do. Calling it
-with an asynchronous adapter (one without `isSync`) throws:
+`getLocaleSync`, `setLocaleSync`, `clearLocaleSync`, and `isCurrentRegionSync`
+only work with an adapter that sets `isSync: true`. The built-in
+`cookieAdapter`, `localStorageAdapter`, `sessionStorageAdapter`, and `memoryAdapter` all do. Calling a
+`*Sync` method with an asynchronous adapter (one without `isSync`) throws:
 
 ```
 Error: getLocaleSync() requires a synchronous storage adapter
+Error: setLocaleSync() requires a synchronous storage adapter
 ```
 
-If your adapter can be synchronous, set `isSync: true`; otherwise use
-`getLocale()`.
+The message names the method you called. If your adapter can be synchronous, set
+`isSync: true`; otherwise use the `Promise`-returning methods and `await` them.
 
 ### Do synchronous adapters make writes synchronous?
 
@@ -276,22 +345,14 @@ pref.isCurrentRegionSync('CN'); // true
 pref.clearLocaleSync();
 ```
 
-Each `*Sync` method requires a synchronous adapter (`isSync: true`) and throws
-otherwise, matching `getLocaleSync`:
-
-```
-Error: setLocaleSync() requires a synchronous storage adapter
-```
-
-**Why the twins exist.** The `Promise`-returning methods stay the default, and
-they are still the right choice with an asynchronous adapter. But when the whole
-flow is synchronous, a floating `Promise` is noise: TypeScript and
-`@typescript-eslint/no-floating-promises` (part of `recommendedTypeChecked`)
-require you to `await` it or silence it with `void`, even though the write has
-already completed. `await` is also contagious — it turns the enclosing function
-`async` — so a synchronous callback that calls `setLocale()` cannot stay
-synchronous. The `*Sync` methods return `void`, so no `await` and no `void` is
-needed, and an error is a normal `throw` you can catch with `try`/`catch`.
+**Why the twins exist.** A `Promise` return is wrong for a synchronous flow: a
+floating `Promise` trips `@typescript-eslint/no-floating-promises` (part of
+`recommendedTypeChecked`) unless you `await` it or silence it with `void` — even
+though the write has already completed. And `await` is contagious: it turns the
+enclosing function `async`, so a synchronous callback that calls `setLocale()`
+cannot stay synchronous. The `*Sync` methods return `void`, so no `await` and no
+`void` is needed, and an error is a normal `throw` you can catch with
+`try`/`catch`.
 
 Use `setLocale()` / `clearLocale()` with an asynchronous adapter, or when you
 want a single code path for both kinds of adapter. Use the `*Sync` methods when
@@ -394,22 +455,26 @@ const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
 ```
 
 For a synchronous backend (for example a cookie in a server framework), add
-`isSync: true` to enable `getLocaleSync`.
+`isSync: true` to enable the `*Sync` methods (`getLocaleSync`, `setLocaleSync`,
+`clearLocaleSync`, `isCurrentRegionSync`).
 
 ### How asynchronous adapters are handled
 
 Async is a first-class case, not an afterthought. An adapter is asynchronous when
 it omits `isSync` (or sets it to `false`) and its methods return promises.
 
-| Call                | Behavior with an async adapter                                              |
-| ------------------- | --------------------------------------------------------------------------- |
-| `getLocale()`       | Awaits `storage.get`.                                                       |
-| `setLocale()`       | Awaits `storage.set` before resolving.                                      |
-| `clearLocale()`     | Awaits `storage.remove` before resolving.                                   |
-| `isCurrentRegion()` | Awaits the underlying `getLocale()`.                                        |
-| `getLocaleSync()`   | **Throws** `Error: getLocaleSync() requires a synchronous storage adapter`. |
+| Call                    | Behavior with an async adapter                                                    |
+| ----------------------- | --------------------------------------------------------------------------------- |
+| `getLocale()`           | Awaits `storage.get`.                                                             |
+| `setLocale()`           | Awaits `storage.set` before resolving.                                            |
+| `clearLocale()`         | Awaits `storage.remove` before resolving.                                         |
+| `isCurrentRegion()`     | Awaits the underlying `getLocale()`.                                              |
+| `getLocaleSync()`       | **Throws** `Error: getLocaleSync() requires a synchronous storage adapter`.       |
+| `setLocaleSync()`       | **Throws** `Error: setLocaleSync() requires a synchronous storage adapter`.       |
+| `clearLocaleSync()`     | **Throws** `Error: clearLocaleSync() requires a synchronous storage adapter`.     |
+| `isCurrentRegionSync()` | **Throws** `Error: isCurrentRegionSync() requires a synchronous storage adapter`. |
 
-Three rules to rely on:
+Four rules to rely on:
 
 - **Rejections from `get` do not throw.** A rejected (or throwing) `storage.get`
   is reported to `onError` with context `'storage'` and the chain continues to
@@ -417,12 +482,15 @@ Three rules to rely on:
 - **Rejections from `set` / `remove` propagate.** A failed write or delete
   rejects the returned promise, so you can retry or surface it. The library does
   not swallow them.
-- **`getLocaleSync()` is unavailable.** There is no synchronous escape hatch for
-  an async backend; use `getLocale()` and `await` it. Only set `isSync: true`
-  when the methods genuinely return values synchronously. If you set it on an
-  async adapter, `getLocaleSync()` reads a `Promise` where a `string` is
-  expected and treats the stored value as a miss — it silently falls through to
-  the fallback chain rather than returning the stored tag.
+- **The `*Sync` methods are unavailable.** There is no synchronous escape hatch
+  for an async backend; use the `Promise`-returning methods and `await` them.
+  Only set `isSync: true` when the methods genuinely return values synchronously.
+  If you set it on an async adapter, `getLocaleSync()` reads a `Promise` where a
+  `string` is expected and treats the stored value as a miss — it silently falls
+  through to the fallback chain rather than returning the stored tag.
+- **One adapter can serve both paths.** `setLocale()` and `setLocaleSync()` share
+  validation and the `storage.set(...)` call; only the error channel differs
+  (rejection vs. throw).
 
 ```ts
 interface StorageAdapter {
@@ -511,17 +579,18 @@ you meant to detect. The error message names the fix.
 
 Affected entry points, with the default `normalize: true`:
 
-| Call                              | Without `Intl.Locale`    |
-| --------------------------------- | ------------------------ |
-| `normalizeLocale()`               | throws                   |
-| `isRegion()`                      | throws                   |
-| `getLocale()` / `getLocaleSync()` | throws (normalizes tags) |
-| `setLocale()`                     | rejects (normalizes tag) |
-| `clearLocale()`                   | works                    |
+| Call                                   | Without `Intl.Locale`    |
+| -------------------------------------- | ------------------------ |
+| `normalizeLocale()`                    | throws                   |
+| `isRegion()` / `isCurrentRegionSync()` | throws                   |
+| `getLocale()` / `getLocaleSync()`      | throws (normalizes tags) |
+| `setLocale()`                          | rejects (normalizes tag) |
+| `setLocaleSync()`                      | throws (normalizes tag)  |
+| `clearLocale()` / `clearLocaleSync()`  | work                     |
 
-The one escape hatch is `normalize: false`. `getLocale()` and `setLocale()` then
-work without `Intl.Locale` (they skip validation and canonicalization), but
-`isRegion()` / `isCurrentRegion()` still require it.
+The one escape hatch is `normalize: false`. The get/set methods then work without
+`Intl.Locale` (they skip validation and canonicalization), but `isRegion()` /
+`isCurrentRegion()` / `isCurrentRegionSync()` still require it.
 
 ## Development
 
