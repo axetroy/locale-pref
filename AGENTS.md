@@ -58,13 +58,17 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
   / `remove` rejections propagate. `localStorageAdapter` and
   `sessionStorageAdapter` share `webStorageAdapter()` in
   `src/adapters/webStorage.ts`.
-- Writes stay async-returning even for sync adapters, and there is deliberately
-  no `setLocaleSync` / `clearLocaleSync`. `await` on a non-thenable runs the sync
-  adapter body inline, so a sync write is already observable without awaiting;
-  the returned `Promise` only exists so write errors (quota, disabled storage,
-  invalid tag) reach the caller through one `.catch`/`try-catch` path. Do not
-  convert the write methods to sync throws. See `test/sync-writes.test.ts` and
-  `DESIGN.md` section 3.3.3.
+- Writes and region checks have synchronous twins (`setLocaleSync`,
+  `clearLocaleSync`, `isCurrentRegionSync`) alongside the `Promise`-returning
+  methods, matching the existing `getLocaleSync`. Each `*Sync` method asserts
+  `isSync === true` via `assertSyncAdapter()` and otherwise throws
+  `"<method>() requires a synchronous storage adapter"`. They exist so a fully
+  synchronous flow stays synchronous: a floating `Promise` would trip
+  `@typescript-eslint/no-floating-promises` and `await` would force the caller
+  `async`. Keep both paths behaviorally identical (shared `normalizeForWrite()` /
+  `resolveLocaleSync()`), and do not drop the `Promise` variants — they are the
+  only option for async adapters. See `test/sync-writes.test.ts` and `DESIGN.md`
+  section 3.3.3.
 - Coverage thresholds (see `vitest.config.ts`): lines/statements/functions 90,
   branches 85. The suite currently sits at 100%.
 - Public API changes require a matching `README.md` update and a changeset.

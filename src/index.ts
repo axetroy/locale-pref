@@ -68,6 +68,22 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
     return normalizeLocale(defaultLocale) ?? FALLBACK_LOCALE;
   };
 
+  const assertSyncAdapter = (method: string): void => {
+    if (storage.isSync !== true) {
+      throw new Error(`${method}() requires a synchronous storage adapter`);
+    }
+  };
+
+  /** Validate and canonicalize a tag for writing, honoring `normalize`. */
+  const normalizeForWrite = (locale: string): string => {
+    if (!normalize) return locale;
+    const normalized = normalizeLocale(locale);
+    if (normalized === null) {
+      throw new RangeError(`Invalid locale tag: ${String(locale)}`);
+    }
+    return normalized;
+  };
+
   const readStored = async (): Promise<unknown> => {
     try {
       return await storage.get(storageKey);
@@ -115,14 +131,16 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
     return fromFallback ?? resolveDefault();
   };
 
-  const getLocaleSync = (): string => {
-    if (storage.isSync !== true) {
-      throw new Error('getLocaleSync() requires a synchronous storage adapter');
-    }
+  const resolveLocaleSync = (): string => {
     const stored = resolveCandidate(readStoredSync());
     if (stored !== null) return stored;
     const fromFallback = walkFallback(readNavigator);
     return fromFallback ?? resolveDefault();
+  };
+
+  const getLocaleSync = (): string => {
+    assertSyncAdapter('getLocaleSync');
+    return resolveLocaleSync();
   };
 
   return {
@@ -140,24 +158,31 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
       return isRegionTag(await getLocale(), region);
     },
 
+    isCurrentRegionSync(region: string): boolean {
+      assertSyncAdapter('isCurrentRegionSync');
+      return isRegionTag(resolveLocaleSync(), region);
+    },
+
     getLocale,
 
     getLocaleSync,
 
     async setLocale(locale: string): Promise<void> {
-      let value = locale;
-      if (normalize) {
-        const normalized = normalizeLocale(locale);
-        if (normalized === null) {
-          throw new RangeError(`Invalid locale tag: ${String(locale)}`);
-        }
-        value = normalized;
-      }
-      await storage.set(storageKey, value, storageSetOptions);
+      await storage.set(storageKey, normalizeForWrite(locale), storageSetOptions);
+    },
+
+    setLocaleSync(locale: string): void {
+      assertSyncAdapter('setLocaleSync');
+      storage.set(storageKey, normalizeForWrite(locale), storageSetOptions);
     },
 
     async clearLocale(): Promise<void> {
       await storage.remove(storageKey);
+    },
+
+    clearLocaleSync(): void {
+      assertSyncAdapter('clearLocaleSync');
+      storage.remove(storageKey);
     },
   };
 }

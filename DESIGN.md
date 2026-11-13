@@ -88,9 +88,12 @@ interface LocalePref {
   getLocale(): Promise<string>;
   getLocaleSync(): string;
   setLocale(locale: string): Promise<void>;
+  setLocaleSync(locale: string): void;
   clearLocale(): Promise<void>;
+  clearLocaleSync(): void;
   isRegion(locale: string, region: string): boolean;
   isCurrentRegion(region: string): Promise<boolean>;
+  isCurrentRegionSync(region: string): boolean;
   normalizeLocale(locale: string): string | null;
   readonly storage: StorageAdapter;
 }
@@ -125,8 +128,16 @@ interface LocalePref {
 - 返回适配器的 Promise（或同步结果包装为 resolved Promise）。
 - `normalize: true` 且运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
+#### 3.2.3.1 `setLocaleSync(locale: string): void`
+- 与 `setLocale` 同校验、同写入，但不返回 Promise；失败以 `throw` 传递。
+- 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"setLocaleSync() requires a synchronous storage adapter"`。
+
 #### 3.2.4 `clearLocale(): Promise<void>`
 - 调用 `storage.remove(storageKey)`。
+
+#### 3.2.4.1 `clearLocaleSync(): void`
+- 与 `clearLocale` 同行为，但不返回 Promise；失败以 `throw` 传递。
+- 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"clearLocaleSync() requires a synchronous storage adapter"`。
 
 #### 3.2.5 `isRegion(locale: string, region: string): boolean`
 - 实现见第 6 节。
@@ -136,6 +147,10 @@ interface LocalePref {
 
 #### 3.2.6 `isCurrentRegion(region: string): Promise<boolean>`
 - 等价于 `isRegion(await this.getLocale(), region)`。
+
+#### 3.2.6.1 `isCurrentRegionSync(region: string): boolean`
+- 等价于 `isRegion(this.getLocaleSync(), region)`。
+- 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"isCurrentRegionSync() requires a synchronous storage adapter"`。
 
 #### 3.2.7 `normalizeLocale(locale: string): string | null`
 - 实现见第 6 节。
@@ -176,15 +191,15 @@ interface StorageSetOptions {
 - `storage.get` 抛错或 reject → 以 `context: 'storage'` 调用 `onError`，随后继续回退链（与同步抛错一致，**不**向上抛）。
 - `storage.set` / `storage.remove` 抛错或 reject → 让 `setLocale` / `clearLocale` 返回的 Promise **reject**，由调用方处理。库不吞错，也不重试。
 
-#### 3.3.3 为何不提供同步写入方法（`setLocaleSync` / `clearLocaleSync`）
+#### 3.3.3 为何提供同步方法（`setLocaleSync` / `clearLocaleSync` / `isCurrentRegionSync`）
 
-结论：**不提供**。理由：
+内置适配器多数是同步的，因此提供同步变体，让整条同步流程保持同步。**不**提供「返回 Promise 但没有对应同步方法」的方案，原因：
 
-- **同步适配器的写入本就是同步生效的。** `setLocale` / `clearLocale` 虽为 `async`，但 `await` 一个非 thenable 会**内联同步执行**适配器函数体，因此适配器在方法返回前就已完成写入；`void pref.setLocale(x); pref.getLocaleSync()` 立刻能读到 `x`。同步方法不会带来新能力。
-- **同步方法只会让错误传递更差。** 写入失败（`QuotaExceededError`、`localStorage` 被浏览器禁用、`normalize: true` 下的非法标签）必须能到达调用方。保持返回 `Promise` 可让同步/异步适配器共用同一条 `.catch` / `try-catch` 路径；同步抛错则无法用 `.catch` 统一处理。
-- **fire-and-forget 安全性。** 返回 Promise 时被忽略的失败写入会以 unhandled rejection 暴露；同步抛错在被忽略时是静默失败。
+- **悬空 Promise 触发类型/静态检查报错。** 同步流程里调用 `setLocale()` 会得到 `Promise<void>`；TypeScript 与 `@typescript-eslint/no-floating-promises`（`recommendedTypeChecked` 的一部分）要求 `await` 它或用 `void` 显式忽略。而写入其实已同步完成，`void` 只是噪音。
+- **`await` 具有传染性。** `await setLocale()` 会把所在函数变成 `async`，同步回调无法保持同步。`*Sync` 方法返回 `void`，无需 `await`/`void`，失败是普通 `throw`，用 `try`/`catch` 处理。
+- **与既有 `getLocaleSync()` 一致。** 读取侧早有同步逃生口；写入/判断侧补齐后 API 对称。
 
-因此 `getLocaleSync()` 覆盖同步**读取**，写入一律返回 `Promise`（同步适配器下其效果已同步）。该结论与契约由 `test/sync-writes.test.ts` 锁定。
+`Promise` 版本仍是默认，也是配合异步适配器时的唯一选择。所有 `*Sync` 方法仅在 `storage.isSync === true` 时可用，否则抛 `Error`（消息形如 `"<method>() requires a synchronous storage adapter"`）。契约由 `test/sync-writes.test.ts` 锁定。
 
 ---
 
@@ -425,10 +440,12 @@ locale-pref/
 - 非法标签 → 抛 `RangeError`。
 - `normalize: false` 时非法标签原样写入（需测试此路径）。
 
-### 8.4.1 同步适配器的写入时序（`sync-writes`）
-- 不 `await` 调用 `setLocale` / `clearLocale` 后，`getLocaleSync()` / `storage.get()` 立刻可读到结果。
-- 适配器函数体在方法返回前执行（事件顺序断言）。
-- 同步适配器的 `set` 抛错 → 返回的 Promise reject（而非同步抛出）。
+### 8.4.1 同步方法（`sync-writes`）
+- `setLocaleSync` / `clearLocaleSync` / `isCurrentRegionSync` 返回 `void` / `boolean`，且立即生效。
+- 与异步版本同校验（`RangeError`）、同写入（`storageSetOptions` 透传）。
+- 同步适配器 `set` / `remove` 抛错 → 同步方法直接 `throw`。
+- 非同步适配器 → 抛 `Error`，消息含对应方法名（`setLocaleSync()` / `clearLocaleSync()` / `isCurrentRegionSync()`）。
+- 整条同步流程不产生任何 `Promise`。
 
 ### 8.5 `cookieAdapter`
 - 浏览器环境（mock `document.cookie`）读写往返。
@@ -469,7 +486,7 @@ locale-pref/
 1. 安装与基本用法（Cookie / localStorage / SSR 三个示例）。
 2. API 参考（本文档第 3 节精简版）。
 3. **`isRegion` 语义说明**（第 6.3 节内容，必须显式写出“不用于推断用户位置”）。
-4. `getLocaleSync` 的限制说明。
+4. `getLocaleSync` / `setLocaleSync` / `clearLocaleSync` / `isCurrentRegionSync` 的限制说明（仅同步适配器，及为何提供同步方法）。
 5. `cookieAdapter` 在 Node 环境只读的说明。
 6. 自定义适配器示例（含**异步适配器**的完整语义：何时 `await`、`get` reject 不抛/`set`·`remove` reject 传播、`getLocaleSync` 抛错，以及误标 `isSync` 的陷阱）。
 7. 浏览器兼容性说明（依赖 `Intl.Locale`，列出精确版本下限、polyfill 名称与引入方式、缺失时的抛错行为，见 §6.4）。

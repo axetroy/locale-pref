@@ -1,17 +1,20 @@
 ---
-'locale-pref': patch
+'locale-pref': minor
 ---
 
-Document that synchronous adapters already write synchronously, and lock the
-behavior with tests.
+Add synchronous twins for the write and region methods: `setLocaleSync()`,
+`clearLocaleSync()`, and `isCurrentRegionSync()`. They match the existing
+`getLocaleSync()` and require a synchronous adapter (`isSync: true`), throwing
+`"<method>() requires a synchronous storage adapter"` otherwise.
 
-`setLocale()` and `clearLocale()` return a `Promise`, but when the adapter is
-synchronous the write completes before the call returns — `await` on a
-non-thenable runs the adapter body inline — so `void pref.setLocale(x)` followed
-by `pref.getLocaleSync()` already observes `x`. No `setLocaleSync()` /
-`clearLocaleSync()` is added: it would not add capability, and returning a
-`Promise` keeps write errors (quota, disabled storage, invalid tag) reachable
-through one `.catch` / `try-catch` path for both sync and async adapters, while
-also surfacing ignored failures as unhandled rejections instead of silent throws.
+They exist so a fully synchronous flow can stay synchronous. Calling
+`setLocale()` from such a flow returns a `Promise<void>`, which
+`@typescript-eslint/no-floating-promises` (and similar typed-lint setups)
+rejects unless you `await` it or silence it with `void` — even though the write
+has already completed — and `await` would force the enclosing function `async`.
+The `*Sync` methods return `void`, so no `await` or `void` is needed and a
+failure is a plain `throw` you can catch with `try`/`catch`.
 
-This is a documentation-and-tests change only; no runtime behavior changed.
+The `Promise`-returning methods remain the default and the only option with an
+asynchronous adapter; both paths share the same validation and storage calls, so
+they behave identically.

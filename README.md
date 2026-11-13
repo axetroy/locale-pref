@@ -131,9 +131,12 @@ interface LocalePref {
   getLocale(): Promise<string>;
   getLocaleSync(): string;
   setLocale(locale: string): Promise<void>;
+  setLocaleSync(locale: string): void;
   clearLocale(): Promise<void>;
+  clearLocaleSync(): void;
   isRegion(locale: string, region: string): boolean;
   isCurrentRegion(region: string): Promise<boolean>;
+  isCurrentRegionSync(region: string): boolean;
   normalizeLocale(locale: string): string | null;
   readonly storage: StorageAdapter;
 }
@@ -166,10 +169,21 @@ Persists the locale. When `normalize` is `true`, the tag is canonicalized first
 and an invalid tag throws a `RangeError`. Writes
 `storage.set(storageKey, value, storageSetOptions)`.
 
+#### `setLocaleSync(locale: string): void`
+
+The synchronous twin of `setLocale`: same validation and same
+`storage.set(...)` call, but it returns nothing and throws on failure instead of
+rejecting. Only usable with a synchronous adapter. See
+[synchronous adapters](#do-synchronous-adapters-make-writes-synchronous).
+
 #### `clearLocale(): Promise<void>`
 
 Removes the stored locale (`storage.remove(storageKey)`), so the next
 `getLocale()` walks the fallback chain again.
+
+#### `clearLocaleSync(): void`
+
+The synchronous twin of `clearLocale`. Only usable with a synchronous adapter.
 
 #### `isRegion(locale: string, region: string): boolean`
 
@@ -180,6 +194,11 @@ invalid input returns `false`. Comparison is case-insensitive. See
 #### `isCurrentRegion(region: string): Promise<boolean>`
 
 Equivalent to `isRegion(await getLocale(), region)`.
+
+#### `isCurrentRegionSync(region: string): boolean`
+
+Equivalent to `isRegion(getLocaleSync(), region)`. Only usable with a synchronous
+adapter.
 
 #### `normalizeLocale(locale: string): string | null`
 
@@ -243,43 +262,40 @@ If your adapter can be synchronous, set `isSync: true`; otherwise use
 
 ### Do synchronous adapters make writes synchronous?
 
-Yes, and you do not need a separate method for it. `setLocale()` and
-`clearLocale()` are declared `async`, but when the adapter is synchronous they
-call the adapter and complete its work **before the call returns** — no `await`
-required to make the write happen:
+Yes — and because several built-in adapters are synchronous, there are
+synchronous twins so a synchronous flow can stay synchronous. `getLocaleSync()`
+reads, `setLocaleSync()` and `clearLocaleSync()` write, and
+`isCurrentRegionSync()` judges the current region:
 
 ```ts
 const pref = createLocalePref({ storage: memoryAdapter() });
 
-void pref.setLocale('zh-CN'); // not awaited
-pref.getLocaleSync(); // 'zh-CN' — the write already landed
+pref.setLocaleSync('zh-CN'); // returns void, throws on failure
+pref.getLocaleSync(); // 'zh-CN'
+pref.isCurrentRegionSync('CN'); // true
+pref.clearLocaleSync();
 ```
 
-An `await` on a non-promise runs the synchronous adapter body inline, so there is
-no deferred write to wait for. You still `await` (or `.catch`) when you care about
-the result, because errors are delivered asynchronously:
+Each `*Sync` method requires a synchronous adapter (`isSync: true`) and throws
+otherwise, matching `getLocaleSync`:
 
-```ts
-await pref.setLocale('zh-CN'); // rejects if the write fails
+```
+Error: setLocaleSync() requires a synchronous storage adapter
 ```
 
-There is deliberately **no `setLocaleSync()` / `clearLocaleSync()`**:
+**Why the twins exist.** The `Promise`-returning methods stay the default, and
+they are still the right choice with an asynchronous adapter. But when the whole
+flow is synchronous, a floating `Promise` is noise: TypeScript and
+`@typescript-eslint/no-floating-promises` (part of `recommendedTypeChecked`)
+require you to `await` it or silence it with `void`, even though the write has
+already completed. `await` is also contagious — it turns the enclosing function
+`async` — so a synchronous callback that calls `setLocale()` cannot stay
+synchronous. The `*Sync` methods return `void`, so no `await` and no `void` is
+needed, and an error is a normal `throw` you can catch with `try`/`catch`.
 
-- **It would not add capability.** For a synchronous adapter the write already
-  completes synchronously, as shown above. The only thing a sync method would
-  change is error delivery.
-- **It would make error handling worse.** A synchronous method that throws on
-  failure cannot be handled with `.catch` or `try/catch` around an `await`. A
-  write can fail for ordinary reasons — `QuotaExceededError`, a `localStorage`
-  disabled by browser settings, a malformed tag under `normalize: true` — and
-  those must reach the caller. Keeping the `Promise` return preserves one error
-  path for both sync and async adapters.
-- **Fire-and-forget stays safe.** With the promise, a rejected write surfaces as
-  an unhandled rejection if you ignore it. A synchronous throw from an ignored
-  call would be a silent failure.
-
-So: sync adapters give you synchronous reads via `getLocaleSync()`, and writes
-that are already synchronous in effect. Read synchronously, `await` the write.
+Use `setLocale()` / `clearLocale()` with an asynchronous adapter, or when you
+want a single code path for both kinds of adapter. Use the `*Sync` methods when
+the adapter is synchronous and the surrounding code is too.
 
 ### `cookieAdapter` is read-only in Node.js
 
