@@ -241,6 +241,46 @@ Error: getLocaleSync() requires a synchronous storage adapter
 If your adapter can be synchronous, set `isSync: true`; otherwise use
 `getLocale()`.
 
+### Do synchronous adapters make writes synchronous?
+
+Yes, and you do not need a separate method for it. `setLocale()` and
+`clearLocale()` are declared `async`, but when the adapter is synchronous they
+call the adapter and complete its work **before the call returns** — no `await`
+required to make the write happen:
+
+```ts
+const pref = createLocalePref({ storage: memoryAdapter() });
+
+void pref.setLocale('zh-CN'); // not awaited
+pref.getLocaleSync(); // 'zh-CN' — the write already landed
+```
+
+An `await` on a non-promise runs the synchronous adapter body inline, so there is
+no deferred write to wait for. You still `await` (or `.catch`) when you care about
+the result, because errors are delivered asynchronously:
+
+```ts
+await pref.setLocale('zh-CN'); // rejects if the write fails
+```
+
+There is deliberately **no `setLocaleSync()` / `clearLocaleSync()`**:
+
+- **It would not add capability.** For a synchronous adapter the write already
+  completes synchronously, as shown above. The only thing a sync method would
+  change is error delivery.
+- **It would make error handling worse.** A synchronous method that throws on
+  failure cannot be handled with `.catch` or `try/catch` around an `await`. A
+  write can fail for ordinary reasons — `QuotaExceededError`, a `localStorage`
+  disabled by browser settings, a malformed tag under `normalize: true` — and
+  those must reach the caller. Keeping the `Promise` return preserves one error
+  path for both sync and async adapters.
+- **Fire-and-forget stays safe.** With the promise, a rejected write surfaces as
+  an unhandled rejection if you ignore it. A synchronous throw from an ignored
+  call would be a silent failure.
+
+So: sync adapters give you synchronous reads via `getLocaleSync()`, and writes
+that are already synchronous in effect. Read synchronously, `await` the write.
+
 ### `cookieAdapter` is read-only in Node.js
 
 In the browser, `cookieAdapter` reads and writes `document.cookie`. On the

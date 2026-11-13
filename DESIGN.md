@@ -176,6 +176,16 @@ interface StorageSetOptions {
 - `storage.get` 抛错或 reject → 以 `context: 'storage'` 调用 `onError`，随后继续回退链（与同步抛错一致，**不**向上抛）。
 - `storage.set` / `storage.remove` 抛错或 reject → 让 `setLocale` / `clearLocale` 返回的 Promise **reject**，由调用方处理。库不吞错，也不重试。
 
+#### 3.3.3 为何不提供同步写入方法（`setLocaleSync` / `clearLocaleSync`）
+
+结论：**不提供**。理由：
+
+- **同步适配器的写入本就是同步生效的。** `setLocale` / `clearLocale` 虽为 `async`，但 `await` 一个非 thenable 会**内联同步执行**适配器函数体，因此适配器在方法返回前就已完成写入；`void pref.setLocale(x); pref.getLocaleSync()` 立刻能读到 `x`。同步方法不会带来新能力。
+- **同步方法只会让错误传递更差。** 写入失败（`QuotaExceededError`、`localStorage` 被浏览器禁用、`normalize: true` 下的非法标签）必须能到达调用方。保持返回 `Promise` 可让同步/异步适配器共用同一条 `.catch` / `try-catch` 路径；同步抛错则无法用 `.catch` 统一处理。
+- **fire-and-forget 安全性。** 返回 Promise 时被忽略的失败写入会以 unhandled rejection 暴露；同步抛错在被忽略时是静默失败。
+
+因此 `getLocaleSync()` 覆盖同步**读取**，写入一律返回 `Promise`（同步适配器下其效果已同步）。该结论与契约由 `test/sync-writes.test.ts` 锁定。
+
 ---
 
 ## 4. 内置适配器
@@ -340,6 +350,7 @@ locale-pref/
 │   ├── localStorage.test.ts
 │   ├── sessionStorage.test.ts
 │   ├── async-adapter.test.ts
+│   ├── sync-writes.test.ts
 │   ├── getLocale.test.ts
 │   └── setLocale.test.ts
 └── README.md
@@ -413,6 +424,11 @@ locale-pref/
 - `normalize: true` 时写入规范化后的值。
 - 非法标签 → 抛 `RangeError`。
 - `normalize: false` 时非法标签原样写入（需测试此路径）。
+
+### 8.4.1 同步适配器的写入时序（`sync-writes`）
+- 不 `await` 调用 `setLocale` / `clearLocale` 后，`getLocaleSync()` / `storage.get()` 立刻可读到结果。
+- 适配器函数体在方法返回前执行（事件顺序断言）。
+- 同步适配器的 `set` 抛错 → 返回的 Promise reject（而非同步抛出）。
 
 ### 8.5 `cookieAdapter`
 - 浏览器环境（mock `document.cookie`）读写往返。

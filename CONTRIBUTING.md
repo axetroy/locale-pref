@@ -24,7 +24,7 @@ the build, and package linting. Run it before opening a pull request.
 ```
 src/
   index.ts          createLocalePref and adapter re-exports
-  adapters/         cookie, localStorage and memory backends
+  adapters/         cookie, localStorage, sessionStorage and memory backends
   utils.ts          isRegion / normalizeLocale / detectNavigatorLocale
   types.ts          public interfaces
 test/               Vitest suites, one file per source area

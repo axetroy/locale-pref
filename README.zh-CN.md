@@ -202,6 +202,31 @@ Error: getLocaleSync() requires a synchronous storage adapter
 
 如果你的适配器可以同步实现，请设置 `isSync: true`；否则请使用 `getLocale()`。
 
+### 同步适配器会让写入也变同步吗？
+
+会，而且不需要额外的方法。`setLocale()` 与 `clearLocale()` 虽然声明为 `async`，但当适配器是同步的时候，它们会在**方法返回之前**就完成适配器的调用与写入——不需要 `await` 来「触发」写入：
+
+```ts
+const pref = createLocalePref({ storage: memoryAdapter() });
+
+void pref.setLocale('zh-CN'); // 未 await
+pref.getLocaleSync(); // 'zh-CN' —— 写入已经生效
+```
+
+对非 Promise 值 `await` 会同步执行适配器函数体，因此不存在「被推迟的写入」需要等待。但当你关心结果时仍应 `await`（或 `.catch`），因为错误是异步传递的：
+
+```ts
+await pref.setLocale('zh-CN'); // 写入失败时 reject
+```
+
+库**有意不提供 `setLocaleSync()` / `clearLocaleSync()`**：
+
+- **不增加能力。** 对同步适配器而言，写入本就在调用返回前完成（见上）。同步方法唯一会改变的是错误的传递方式。
+- **会让错误处理更差。** 同步方法在失败时抛错，就无法用 `.catch` 或 `await` 外层 `try/catch` 统一处理。写入失败的原因很常见——`QuotaExceededError`、浏览器设置禁用了 `localStorage`、`normalize: true` 下的非法标签——这些都必须能传达给调用方。保持返回 `Promise` 才能让同步与异步适配器共用同一条错误路径。
+- **fire-and-forget 才安全。** 返回 Promise 时，被忽略的失败写入会以 unhandled rejection 暴露出来；而同步方法在被忽略时抛错则是静默失败。
+
+结论：同步适配器通过 `getLocaleSync()` 提供同步读取，写入本身也已是同步生效；读取用同步方法，写入用 `await`。
+
 ### `cookieAdapter` 在 Node.js 中只读
 
 在浏览器中，`cookieAdapter` 读写 `document.cookie`。在服务端，它读取你传入的 `cookieString`，并在写入时**抛错**：
