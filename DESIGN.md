@@ -483,12 +483,12 @@ locale-pref/
 
 ## 9. README 必备内容
 
-1. 安装与基本用法（Cookie / localStorage / SSR 三个示例）。
-2. API 参考（本文档第 3 节精简版）。
+1. 安装与基本用法。**同步 API 优先**：开头与快速开始先用 `getLocaleSync()` / `setLocaleSync()`（内置适配器均为同步），再单列一节介绍异步后端（`await` 用法）。顺序为 Cookie / localStorage / 异步后端 / SSR 四个示例。
+2. API 参考（本文档第 3 节精简版）。实例方法按「同步在前、异步在后」排列，并各自标注可用条件。
 3. **`isRegion` 语义说明**（第 6.3 节内容，必须显式写出“不用于推断用户位置”）。
 4. `getLocaleSync` / `setLocaleSync` / `clearLocaleSync` / `isCurrentRegionSync` 的限制说明（仅同步适配器，及为何提供同步方法）。
 5. `cookieAdapter` 在 Node 环境只读的说明。
-6. 自定义适配器示例（含**异步适配器**的完整语义：何时 `await`、`get` reject 不抛/`set`·`remove` reject 传播、`getLocaleSync` 抛错，以及误标 `isSync` 的陷阱）。
+6. 自定义适配器示例（含**异步适配器**的完整语义：何时 `await`、`get` reject 不抛/`set`·`remove` reject 传播、`*Sync` 方法抛错，以及误标 `isSync` 的陷阱）。
 7. 浏览器兼容性说明（依赖 `Intl.Locale`，列出精确版本下限、polyfill 名称与引入方式、缺失时的抛错行为，见 §6.4）。
 8. `getDefaultLocalePref` 说明（惰性单例、等价于无参 `createLocalePref()`，并显式写出**多租户 SSR 不得使用**的理由，见 §3.1.1）。
 9. 内置适配器一览：`cookieAdapter` / `localStorageAdapter` / `sessionStorageAdapter` / `memoryAdapter`，并说明 `sessionStorage` 为「仅本次会话」语义、不自动纳入回退链。
