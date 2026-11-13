@@ -23,7 +23,12 @@ export interface StorageSetOptions {
 export interface StorageAdapter {
   get(key: string): string | null | Promise<string | null>;
   set(key: string, value: string, options?: StorageSetOptions): void | Promise<void>;
-  remove(key: string): void | Promise<void>;
+  /**
+   * Remove a stored value. `options` carries the same attributes the value was
+   * written with (for example a cookie `path`/`domain`), so a backend that
+   * scopes entries by attribute can delete the right one.
+   */
+  remove(key: string, options?: StorageSetOptions): void | Promise<void>;
   /** Marks the adapter as synchronous. */
   readonly isSync?: boolean;
 }

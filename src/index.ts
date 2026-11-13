@@ -177,12 +177,12 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
     },
 
     async clearLocale(): Promise<void> {
-      await storage.remove(storageKey);
+      await storage.remove(storageKey, storageSetOptions);
     },
 
     clearLocaleSync(): void {
       assertSyncAdapter('clearLocaleSync');
-      storage.remove(storageKey);
+      storage.remove(storageKey, storageSetOptions);
     },
   };
 }

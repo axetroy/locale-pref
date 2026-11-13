@@ -227,8 +227,10 @@ storage). Only usable with a synchronous adapter.
 
 #### `clearLocaleSync(): void`
 
-Removes the stored locale (`storage.remove(storageKey)`), so the next
-`getLocaleSync()` walks the fallback chain again. Only usable with a synchronous
+Removes the stored locale, so the next `getLocaleSync()` walks the fallback chain
+again. Calls `storage.remove(storageKey, storageSetOptions)`: the write options
+(for example a cookie `path`/`domain`) are forwarded, so a backend that scopes
+entries by attribute deletes the right one. Only usable with a synchronous
 adapter.
 
 #### `isCurrentRegionSync(region: string): boolean`
@@ -382,8 +384,10 @@ framework.
 | `defaultMaxAge` | `31536000` | Default cookie lifetime in seconds (one year).    |
 
 Writes `key=encodeURIComponent(value); path=…; max-age=…; SameSite=…` and adds
-`Secure` only when `secure: true` is passed. `remove` writes the same cookie with
-`max-age=0`. `isSync: true`.
+`Secure` only when `secure: true` is passed. A per-write `maxAge` overrides
+`defaultMaxAge`. `remove` writes the same cookie (same `path`/`domain`) with
+`max-age=0`, so it deletes the cookie it wrote; it ignores any `maxAge` in the
+options. `isSync: true`.
 
 ### `localStorageAdapter(options?)`
 
@@ -418,9 +422,9 @@ const storage: StorageAdapter = {
     session.set(key, value);
     durable.set(key, value, options);
   },
-  remove: (key) => {
+  remove: (key, options) => {
     session.remove(key);
-    durable.remove(key);
+    durable.remove(key, options);
   },
 };
 
@@ -496,7 +500,7 @@ Four rules to rely on:
 interface StorageAdapter {
   get(key: string): string | null | Promise<string | null>;
   set(key: string, value: string, options?: StorageSetOptions): void | Promise<void>;
-  remove(key: string): void | Promise<void>;
+  remove(key: string, options?: StorageSetOptions): void | Promise<void>;
   readonly isSync?: boolean;
 }
 
