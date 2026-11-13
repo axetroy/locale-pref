@@ -1,7 +1,7 @@
 # locale-pref 设计白皮书
 
 > 版本：1.0
-> 状态：待实现
+> 状态：已实现
 > 目标读者：实现该库的工程 Agent
 > 包名：`locale-pref`
 
@@ -72,6 +72,15 @@ interface LocalePrefOptions {
 - 所有选项都有默认值，`createLocalePref()` 无参可调用。
 - 对非法选项值（如 `storage` 不是对象、`fallback` 不是数组）应抛出 `TypeError`，并在消息中指明字段名。
 
+### 3.1.1 便捷默认实例
+```typescript
+function getDefaultLocalePref(): LocalePref;
+```
+- 返回**惰性创建、进程级共享**的实例，等价于无参 `createLocalePref()`。
+- **不得**在模块顶层调用：那样会破坏 `sideEffects: false`。必须在首次调用函数时才创建并缓存。
+- 用于默认配置够用的场景（典型为浏览器应用）。**多租户 SSR 服务端不得使用**：进程级共享 + 固定 `'user_locale'` key 会导致跨请求语言泄漏；服务端应按请求 `createLocalePref({ storage: cookieAdapter({ cookieString }) })`。
+- README 必须写明上述限制。
+
 ### 3.2 实例接口
 
 ```typescript
@@ -102,6 +111,7 @@ interface LocalePref {
 
 **异常要求**：
 - 适配器 `get` 抛错时，**捕获并继续回退链**，不向上抛出（记录到 `onError` 回调，`context` 为 `'storage'`）。
+- `normalize: true` 且运行时缺失 `Intl.Locale` 时抛错（见 §6.4），不静默降级。
 
 #### 3.2.2 `getLocaleSync(): string`
 - 仅当适配器是同步适配器时可用。
@@ -113,6 +123,7 @@ interface LocalePref {
 - 若 `normalize: true` 且 `normalizeLocale(locale)` 为 `null`，抛出 `RangeError`，消息包含非法标签。
 - 写入 `storage.set(storageKey, normalizedLocale, storageSetOptions)`。
 - 返回适配器的 Promise（或同步结果包装为 resolved Promise）。
+- `normalize: true` 且运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
 #### 3.2.4 `clearLocale(): Promise<void>`
 - 调用 `storage.remove(storageKey)`。
@@ -121,12 +132,14 @@ interface LocalePref {
 - 实现见第 6 节。
 - 非法 `locale` 或 `region` 返回 `false`，不抛错。
 - 大小写不敏感比较。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）；这是“平台能力缺失”，与“输入非法”不同。
 
 #### 3.2.6 `isCurrentRegion(region: string): Promise<boolean>`
 - 等价于 `isRegion(await this.getLocale(), region)`。
 
 #### 3.2.7 `normalizeLocale(locale: string): string | null`
 - 实现见第 6 节。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
 #### 3.2.8 `storage`
 - 只读属性，返回创建实例时使用的适配器。
@@ -150,6 +163,18 @@ interface StorageSetOptions {
   domain?: string;
 }
 ```
+
+#### 3.3.1 同步与异步的判定
+
+- 适配器 **`isSync === true`** → 同步适配器；否则为异步适配器（无论方法实际是否返回 Promise）。
+- 异步适配器在 `getLocale` / `setLocale` / `clearLocale` / `isCurrentRegion` 中一律 `await`，语义与同步适配器一致。
+- 异步适配器调用 `getLocaleSync()` 抛 `Error`，消息为 `"getLocaleSync() requires a synchronous storage adapter"`。
+- 误把异步适配器标记为 `isSync: true` 时，`getLocaleSync()` 会把 `Promise` 当作 `string` 处理，`resolveCandidate` 因 `typeof value !== 'string'` 判为未命中，从而静默走回退链。文档需提示该陷阱。
+
+#### 3.3.2 异步错误语义
+
+- `storage.get` 抛错或 reject → 以 `context: 'storage'` 调用 `onError`，随后继续回退链（与同步抛错一致，**不**向上抛）。
+- `storage.set` / `storage.remove` 抛错或 reject → 让 `setLocale` / `clearLocale` 返回的 Promise **reject**，由调用方处理。库不吞错，也不重试。
 
 ---
 
@@ -192,7 +217,24 @@ function localStorageAdapter(options?: {
 - `isSync`: `true`。
 - 内部捕获 `localStorage` 的 `QuotaExceededError` 等异常并原样抛出（由上层 `onError` 处理）。
 
-### 4.3 `memoryAdapter`
+### 4.3 `sessionStorageAdapter`
+
+```typescript
+function sessionStorageAdapter(options?: {
+  storage?: Storage;
+}): StorageAdapter;
+```
+
+**行为**：
+- 与 `localStorageAdapter` 同构，底层为 `globalThis.sessionStorage`。
+- 若环境无 `sessionStorage` 且未传 `storage`，**创建时抛错**，消息为 `"sessionStorage is not available in this environment"`。
+- 忽略 `StorageSetOptions`；异常原样抛出。
+- `isSync`: `true`。
+- 二者共用内部 `webStorageAdapter(storage)` 辅助函数（`src/adapters/webStorage.ts`），避免重复实现。
+
+**语义**：`sessionStorage` 作用域为当前标签页，关闭即清空。适合「仅本次会话」的临时覆盖，不适合持久偏好。库**不会**自动把 session 值纳入回退链；如需「会话覆盖 + 持久兜底」，由使用方组合自定义适配器（见 README）。
+
+### 4.4 `memoryAdapter`
 
 ```typescript
 function memoryAdapter(initial?: Record<string, string>): StorageAdapter;
@@ -218,6 +260,8 @@ function detectNavigatorLocale(): string | null;
 - `navigator` 不存在或 `navigator.languages` 非数组/为空 → 返回 `null`。
 - 遍历 `navigator.languages`，返回第一个 `normalizeLocale` 非 `null` 的值。
 - 不读取 `navigator.language` 作为额外来源（`languages` 已覆盖，且 `language` 是 `languages[0]` 的历史别名）。
+- 通过全局对象回退链读取 `navigator`（见 §6.4）。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
 ---
 
@@ -257,6 +301,20 @@ function normalizeLocale(locale: string): string | null {
 - 它**不用于推断用户物理位置**，也不等同于 `Accept-Language` 的地区含义。
 - `en`、`zh` 这类无地区子标签的标签，对任何 `region` 都返回 `false`。
 
+### 6.4 平台能力要求（`Intl.Locale`）
+- `isRegion` 与 `normalizeLocale` 依赖 `Intl.Locale`。该 API 的浏览器支持下限为
+  Chrome 74 / Firefox 75 / Safari 14 / Edge 79，Node.js 20+ 原生支持。
+- 库**不内置 polyfill**（保持零依赖与 `sideEffects: false`），由使用方按需引入，
+  例如 `@formatjs/intl-locale`。
+- 运行时缺失 `Intl.Locale` 时**必须快速失败**：抛出带修复指引的 `Error`，而不是
+  退化为“恒 `false` / 恒 `null`”。静默降级会把用户语言判断错而不报错。
+  - 非法输入（非字符串、畸形标签）仍按 §3.2.5 返回 `false` / `null`，不抛错；
+    “平台能力缺失”与“输入非法”是两回事，前者抛错、后者不抛。
+- `normalize: false` 是逃生口：`getLocale` / `setLocale` 可在无 `Intl.Locale` 时工作，
+  但 `isRegion` / `isCurrentRegion` 仍依赖它。
+- `globalThis`（Chrome 71 / Firefox 65 / Safari 12.1）通过 `globalThis` → `self` →
+  `window` 回退链解析，其缺失不致命。
+
 ---
 
 ## 7. 目录结构与打包
@@ -267,10 +325,12 @@ locale-pref/
 ├── package.json
 ├── tsconfig.json
 ├── src/
-│   ├── index.ts          # createLocalePref + 适配器导出
+│   ├── index.ts          # createLocalePref / getDefaultLocalePref + 适配器导出
 │   ├── adapters/
 │   │   ├── cookie.ts
 │   │   ├── localStorage.ts
+│   │   ├── sessionStorage.ts
+│   │   ├── webStorage.ts      # localStorage/sessionStorage 共用的 Storage 适配
 │   │   └── memory.ts
 │   ├── utils.ts          # isRegion / normalizeLocale / detectNavigatorLocale
 │   └── types.ts
@@ -278,6 +338,8 @@ locale-pref/
 │   ├── utils.test.ts
 │   ├── cookie.test.ts
 │   ├── localStorage.test.ts
+│   ├── sessionStorage.test.ts
+│   ├── async-adapter.test.ts
 │   ├── getLocale.test.ts
 │   └── setLocale.test.ts
 └── README.md
@@ -328,6 +390,8 @@ locale-pref/
 - `normalizeLocale('zh-hans-cn') === 'zh-Hans-CN'`
 - `normalizeLocale('') === null`
 - `normalizeLocale('!!') === null`
+- 运行时缺失 `Intl.Locale` → `normalizeLocale` / `isRegion` / `detectNavigatorLocale` 抛错，消息含 `Intl.Locale`（见 §6.4）。
+- 缺失 `globalThis` 时 `detectNavigatorLocale` 经 `self` / `window` 读取 `navigator`（见 §6.4）。
 
 ### 8.2 `getLocale` 回退链
 - 存储命中合法值 → 返回该值，不回退。
@@ -338,6 +402,7 @@ locale-pref/
 - 全部失败 → 返回 `defaultLocale`。
 - `defaultLocale` 非法 + `normalize: true` → 返回 `'en'`。
 - 适配器 `get` 抛错 → 回退继续，`onError` 被调用一次，`context === 'storage'`。
+- 运行时缺失 `Intl.Locale` + `normalize: true` → 抛错；+ `normalize: false` → 正常回退（见 §6.4）。
 
 ### 8.3 `getLocaleSync`
 - 同步适配器 → 返回与 `getLocale` 一致的结果。
@@ -362,7 +427,21 @@ locale-pref/
 - 传入 mock `Storage` → 读写往返。
 - 忽略 `StorageSetOptions`。
 
-### 8.7 边界
+### 8.7 `sessionStorageAdapter`
+- 无 `sessionStorage` 且未传 `storage` → 创建时抛错（消息含 `sessionStorage`）。
+- 传入 mock `Storage` → 读写往返。
+- 忽略 `StorageSetOptions`；`isSync: true`；异常原样抛出。
+
+### 8.8 异步适配器
+- 全异步适配器（无 `isSync`）：`getLocale` 解析出存储值。
+- `setLocale` 等待写入完成，后续 `getLocale` 能读到新值。
+- `clearLocale` 等待删除完成。
+- `isCurrentRegion` 基于异步 `getLocale` 正确判断。
+- `storage.get` reject → 以 `'storage'` 调用 `onError` 并继续回退。
+- `storage.set` / `storage.remove` reject → `setLocale` / `clearLocale` 的 Promise reject。
+- 无 `isSync` 的适配器调用 `getLocaleSync()` → 抛错。
+
+### 8.9 边界
 - `createLocalePref({ fallback: [] })` 合法，回退直接到 `defaultLocale`。
 - `createLocalePref({ storage: 'not-an-object' })` → `TypeError`。
 - `storageKey` 含特殊字符（如 `a.b`）在 cookie 中正确存取。
@@ -376,8 +455,10 @@ locale-pref/
 3. **`isRegion` 语义说明**（第 6.3 节内容，必须显式写出“不用于推断用户位置”）。
 4. `getLocaleSync` 的限制说明。
 5. `cookieAdapter` 在 Node 环境只读的说明。
-6. 自定义适配器示例。
-7. 浏览器兼容性说明（依赖 `Intl.Locale`，现代浏览器与 Node 20+ 原生支持）。
+6. 自定义适配器示例（含**异步适配器**的完整语义：何时 `await`、`get` reject 不抛/`set`·`remove` reject 传播、`getLocaleSync` 抛错，以及误标 `isSync` 的陷阱）。
+7. 浏览器兼容性说明（依赖 `Intl.Locale`，列出精确版本下限、polyfill 名称与引入方式、缺失时的抛错行为，见 §6.4）。
+8. `getDefaultLocalePref` 说明（惰性单例、等价于无参 `createLocalePref()`，并显式写出**多租户 SSR 不得使用**的理由，见 §3.1.1）。
+9. 内置适配器一览：`cookieAdapter` / `localStorageAdapter` / `sessionStorageAdapter` / `memoryAdapter`，并说明 `sessionStorage` 为「仅本次会话」语义、不自动纳入回退链。
 
 ---
 
@@ -393,6 +474,9 @@ locale-pref/
 - [ ] 在 Node 20.19 与 22.x 下 `node --test` 或 Vitest 均通过。
 - [ ] `isRegion` 对非法输入不抛错。
 - [ ] `getLocaleSync` 对异步适配器抛错且消息准确。
+- [ ] 运行时缺失 `Intl.Locale` 时 `isRegion` / `normalizeLocale` / `detectNavigatorLocale` 抛错，消息含修复指引（见 §6.4）。
+- [ ] 缺失 `globalThis` 时 `detectNavigatorLocale` / `localStorageAdapter` 仍可经 `self` / `window` 工作（见 §6.4）。
+- [ ] 库产物不含任何 polyfill；`sideEffects: false` 保持不变。
 
 ---
 
