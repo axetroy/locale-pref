@@ -215,3 +215,73 @@ describe('getLocaleSync', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error), 'storage');
   });
 });
+
+describe('missing Intl.Locale', () => {
+  const withIntlLocale = (value: unknown, fn: () => void): void => {
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, 'Locale');
+    try {
+      Object.defineProperty(Intl, 'Locale', { value, configurable: true, writable: true });
+      fn();
+    } finally {
+      if (descriptor) Object.defineProperty(Intl, 'Locale', descriptor);
+      else delete (Intl as { Locale?: unknown }).Locale;
+    }
+  };
+
+  it('throws from getLocaleSync when normalize is enabled', () => {
+    vi.stubGlobal('navigator', { languages: ['fr-FR'] });
+    const pref = createLocalePref({ storage: memoryAdapter(), fallback: ['navigator'] });
+    let error: unknown;
+    withIntlLocale(undefined, () => {
+      try {
+        pref.getLocaleSync();
+      } catch (caught) {
+        error = caught;
+      }
+    });
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/Intl\.Locale/);
+  });
+
+  it('reports the navigator failure and still resolves with normalize disabled', () => {
+    vi.stubGlobal('navigator', { languages: ['fr-FR'] });
+    const onError = vi.fn();
+    const pref = createLocalePref({
+      storage: memoryAdapter(),
+      fallback: ['navigator'],
+      normalize: false,
+      defaultLocale: 'en',
+      onError,
+    });
+    let locale = '';
+    withIntlLocale(undefined, () => {
+      locale = pref.getLocaleSync();
+    });
+    expect(locale).toBe('en');
+    expect(onError).toHaveBeenCalledWith(expect.any(Error), 'navigator');
+  });
+
+  it('rejects setLocale when normalize is enabled', async () => {
+    const pref = createLocalePref({ storage: memoryAdapter() });
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, 'Locale');
+    try {
+      Object.defineProperty(Intl, 'Locale', { value: undefined, configurable: true, writable: true });
+      await expect(pref.setLocale('zh-CN')).rejects.toThrow(/Intl\.Locale/);
+    } finally {
+      if (descriptor) Object.defineProperty(Intl, 'Locale', descriptor);
+    }
+  });
+
+  it('still reads and writes raw tags when normalize is disabled', async () => {
+    const storage = memoryAdapter();
+    const pref = createLocalePref({ storage, normalize: false, fallback: [], defaultLocale: 'en' });
+    let locale = '';
+    withIntlLocale(undefined, () => {
+      locale = pref.getLocaleSync();
+    });
+    expect(locale).toBe('en');
+    // normalize: false is the documented escape hatch that avoids Intl.Locale.
+    await pref.setLocale('zh-CN');
+    expect(storage.get('user_locale')).toBe('zh-CN');
+  });
+});

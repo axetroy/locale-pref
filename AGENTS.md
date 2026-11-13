@@ -43,7 +43,11 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
 - The `exports` map exposes `.` and `./utils`. `isRegion`, `normalizeLocale`,
   and `detectNavigatorLocale` live only on `locale-pref/utils`.
 - Core logic must not touch `document` or `window` directly; environment access
-  goes through the adapters in `src/adapters/`.
+  goes through the adapters in `src/adapters/`. The ambient global object is read
+  only through `getGlobal()` in `src/global.ts`.
+- `Intl.Locale` is a hard requirement. `normalizeLocale` / `isRegion` /
+  `detectNavigatorLocale` must throw an actionable error when it is missing
+  (never degrade to `null`/`false`). Invalid _input_ still returns `null`/`false`.
 - Coverage thresholds (see `vitest.config.ts`): lines/statements/functions 90,
   branches 85. The suite currently sits at 100%.
 - Public API changes require a matching `README.md` update and a changeset.
@@ -53,6 +57,7 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
 ```
 src/index.ts        createLocalePref factory, re-exports
 src/adapters/       cookie.ts, localStorage.ts, memory.ts
+src/global.ts       getGlobal(): globalThis -> self -> window fallback
 src/utils.ts        isRegion / normalizeLocale / detectNavigatorLocale
 src/types.ts        public interfaces (excluded from coverage)
 test/               Vitest suites, one file per source area

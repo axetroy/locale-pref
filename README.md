@@ -299,16 +299,84 @@ interface StorageSetOptions {
 
 ## Browser and runtime compatibility
 
-`locale-pref` relies on `Intl.Locale`, which is available natively in modern
-browsers (Chrome 74+, Firefox 75+, Safari 14+, Edge 79+) and in Node.js 20+.
+`locale-pref` is pure ESM with no runtime dependencies. It needs exactly one
+platform API: `Intl.Locale`.
 
-| Runtime       | Supported                      |
-| ------------- | ------------------------------ |
-| Node.js       | 20.19.0 and later              |
-| Browsers      | Any with `Intl.Locale` support |
-| Module format | ESM only (no CommonJS build)   |
+| Runtime       | Supported                    |
+| ------------- | ---------------------------- |
+| Node.js       | 20.19.0 and later            |
+| Chrome        | 74 and later                 |
+| Firefox       | 75 and later                 |
+| Safari        | 14 and later                 |
+| Edge          | 79 and later                 |
+| Module format | ESM only (no CommonJS build) |
 
 CommonJS consumers can still load the package with a dynamic `import()`.
+
+Every other API the library touches is far older than `Intl.Locale` and never
+becomes the limiting factor: `navigator.languages` (Chrome 37 / Firefox 32 /
+Safari 10.1), `Map` (Chrome 38), `Promise` (Chrome 32), `Object.entries`
+(Chrome 54), and `document.cookie` / `localStorage` (all browsers). `globalThis`
+(Chrome 71 / Firefox 65 / Safari 12.1) is resolved through a fallback chain
+(`globalThis` → `self` → `window`), so its absence is not fatal either.
+
+### Supporting older browsers with a polyfill
+
+To support browsers below the versions above, add an `Intl.Locale` polyfill.
+`locale-pref` deliberately does **not** bundle one: a polyfill is a runtime
+dependency (breaking the zero-dependency guarantee), it is unnecessary for most
+users, and it conflicts with `sideEffects: false`. Instead, load a polyfill in
+your own application, before any `locale-pref` call:
+
+```js
+// Application entry, before importing locale-pref.
+import '@formatjs/intl-locale/polyfill.js';
+```
+
+A few points to get right:
+
+- **Use a real polyfill, not just a shim.** [`@formatjs/intl-locale`](https://formatjs.github.io/docs/polyfills/intl-locale)
+  implements the full `Intl.Locale` surface and is what the examples here use.
+  It is a polyfill/ponyfill, so importing it is safe even where the API exists.
+- **Load it before `locale-pref` in every environment.** In SSR, import the
+  polyfill in the server entry too; otherwise `getLocaleSync()` silently falls
+  back to `defaultLocale` on the server.
+- **Downlevel it to your browser target.** The published polyfill and the
+  `locale-pref` build both target modern JavaScript. Run them through your
+  bundler/Babel with your own `browserslist` so the syntax matches your
+  supported browsers.
+- **`Intl.Locale` is mandatory.** If it is missing at runtime, the library fails
+  loudly rather than silently. See the next section.
+
+### Missing `Intl.Locale` throws
+
+`locale-pref` detects `Intl.Locale` and throws an actionable `Error` when it is
+absent, instead of degrading to wrong answers:
+
+```js
+// Browser without Intl.Locale and without the polyfill:
+isRegion('zh-CN', 'CN');
+// Error: locale-pref requires Intl.Locale, ... Add a polyfill such as
+// @formatjs/intl-locale ..., or pass { normalize: false } ...
+```
+
+Without this guard, `isRegion()` would return `false` and `normalizeLocale()`
+would return `null` for every input, silently mis-routing users whose language
+you meant to detect. The error message names the fix.
+
+Affected entry points, with the default `normalize: true`:
+
+| Call                              | Without `Intl.Locale`    |
+| --------------------------------- | ------------------------ |
+| `normalizeLocale()`               | throws                   |
+| `isRegion()`                      | throws                   |
+| `getLocale()` / `getLocaleSync()` | throws (normalizes tags) |
+| `setLocale()`                     | rejects (normalizes tag) |
+| `clearLocale()`                   | works                    |
+
+The one escape hatch is `normalize: false`. `getLocale()` and `setLocale()` then
+work without `Intl.Locale` (they skip validation and canonicalization), but
+`isRegion()` / `isCurrentRegion()` still require it.
 
 ## Development
 

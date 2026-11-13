@@ -5,6 +5,56 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const realGlobal = globalThis as Record<string, unknown>;
+
+/** Run `fn` with `globalThis` hidden, restoring it before returning. */
+function withoutGlobalThis<T>(fn: () => T): T {
+  const descriptor = Object.getOwnPropertyDescriptor(realGlobal, 'globalThis');
+  try {
+    Object.defineProperty(realGlobal, 'globalThis', { value: undefined, configurable: true, writable: true });
+    return fn();
+  } finally {
+    if (descriptor) Object.defineProperty(realGlobal, 'globalThis', descriptor);
+  }
+}
+
+describe('Intl.Locale requirement', () => {
+  const withIntlLocale = (value: unknown, fn: () => void): void => {
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, 'Locale');
+    try {
+      Object.defineProperty(Intl, 'Locale', { value, configurable: true, writable: true });
+      fn();
+    } finally {
+      if (descriptor) Object.defineProperty(Intl, 'Locale', descriptor);
+      else delete (Intl as { Locale?: unknown }).Locale;
+    }
+  };
+
+  it('normalizeLocale throws an actionable error when Intl.Locale is missing', () => {
+    withIntlLocale(undefined, () => {
+      expect(() => normalizeLocale('zh-CN')).toThrow(/Intl\.Locale/);
+    });
+  });
+
+  it('isRegion throws an actionable error when Intl.Locale is missing', () => {
+    withIntlLocale(undefined, () => {
+      expect(() => isRegion('zh-CN', 'CN')).toThrow(/@formatjs\/intl-locale/);
+    });
+  });
+
+  it('still returns false for non-string input without Intl.Locale', () => {
+    withIntlLocale(undefined, () => {
+      expect(isRegion(undefined as unknown as string, 'CN')).toBe(false);
+    });
+  });
+
+  it('still returns null for an empty string without Intl.Locale', () => {
+    withIntlLocale(undefined, () => {
+      expect(normalizeLocale('')).toBe(null);
+    });
+  });
+});
+
 describe('isRegion', () => {
   it('detects a matching region subtag', () => {
     expect(isRegion('zh-CN', 'CN')).toBe(true);
@@ -107,5 +157,21 @@ describe('detectNavigatorLocale', () => {
   it('does not read navigator.language', () => {
     vi.stubGlobal('navigator', { language: 'ja-JP' });
     expect(detectNavigatorLocale()).toBe(null);
+  });
+
+  it('reads navigator via self when globalThis is missing', () => {
+    Object.defineProperty(realGlobal, 'self', {
+      value: { navigator: { languages: ['fr-FR'] } },
+      configurable: true,
+      writable: true,
+    });
+    const result = withoutGlobalThis(() => detectNavigatorLocale());
+    delete realGlobal.self;
+    expect(result).toBe('fr-FR');
+  });
+
+  it('returns null when no global object is available', () => {
+    const result = withoutGlobalThis(() => detectNavigatorLocale());
+    expect(result).toBe(null);
   });
 });

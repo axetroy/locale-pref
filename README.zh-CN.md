@@ -260,15 +260,61 @@ interface StorageSetOptions {
 
 ## 浏览器与运行时兼容性
 
-`locale-pref` 依赖 `Intl.Locale`，现代浏览器（Chrome 74+、Firefox 75+、Safari 14+、Edge 79+）与 Node.js 20+ 均已原生支持。
+`locale-pref` 是纯 ESM、零运行时依赖，只依赖一个平台 API：`Intl.Locale`。
 
 | 运行时   | 支持情况                       |
 | -------- | ------------------------------ |
 | Node.js  | 20.19.0 及以上                 |
-| 浏览器   | 任何支持 `Intl.Locale` 的版本  |
+| Chrome   | 74 及以上                      |
+| Firefox  | 75 及以上                      |
+| Safari   | 14 及以上                      |
+| Edge     | 79 及以上                      |
 | 模块格式 | 仅 ESM（不提供 CommonJS 构建） |
 
 CommonJS 使用方仍可通过动态 `import()` 加载本包。
+
+库用到的其他 API 都比 `Intl.Locale` 老得多，不会成为限制：`navigator.languages`（Chrome 37 / Firefox 32 / Safari 10.1）、`Map`（Chrome 38）、`Promise`（Chrome 32）、`Object.entries`（Chrome 54），以及 `document.cookie` / `localStorage`（所有浏览器）。`globalThis`（Chrome 71 / Firefox 65 / Safari 12.1）通过回退链解析（`globalThis` → `self` → `window`），因此即使缺失也不会致命。
+
+### 用 polyfill 兼容更老的浏览器
+
+要支持上表版本更低的浏览器，请引入 `Intl.Locale` polyfill。`locale-pref` **刻意不内置** polyfill：它本身是运行时依赖（会破坏零依赖承诺）、对多数用户并不需要，并且与 `sideEffects: false` 冲突。正确做法是在你自己的应用中、任何 `locale-pref` 调用之前加载它：
+
+```js
+// 应用入口，需早于任何 locale-pref 调用。
+import '@formatjs/intl-locale/polyfill.js';
+```
+
+几个要点：
+
+- **用真正的 polyfill，而不是简单的 shim。** [`@formatjs/intl-locale`](https://formatjs.github.io/docs/polyfills/intl-locale) 实现了完整的 `Intl.Locale`，本文示例即使用它。它是 polyfill/ponyfill，即使 API 已存在也可安全引入。
+- **在每个环境中都先于 `locale-pref` 加载。** SSR 场景下服务端入口也要引入；否则服务端的 `getLocaleSync()` 会静默回退到 `defaultLocale`。
+- **按你的目标浏览器降级。** 发布的 polyfill 与 `locale-pref` 产物都面向现代 JavaScript。请用你自己的 `browserslist` 通过打包器 / Babel 处理，使语法匹配目标浏览器。
+- **`Intl.Locale` 是必需的。** 运行时若缺失，库会显式抛错，而不是静默降级。见下一节。
+
+### 缺少 `Intl.Locale` 时会抛错
+
+`locale-pref` 会检测 `Intl.Locale`，缺失时抛出带修复指引的 `Error`，而不是退化成错误结果：
+
+```js
+// 浏览器既没有 Intl.Locale 也没有 polyfill：
+isRegion('zh-CN', 'CN');
+// Error: locale-pref requires Intl.Locale, ... Add a polyfill such as
+// @formatjs/intl-locale ..., or pass { normalize: false } ...
+```
+
+如果没有这层保护，`isRegion()` 会对任何输入都返回 `false`、`normalizeLocale()` 都返回 `null`，从而静默地把用户语言判断错。错误信息直接给出了修复方式。
+
+在默认 `normalize: true` 下受影响的入口：
+
+| 调用                              | 缺少 `Intl.Locale` 时    |
+| --------------------------------- | ------------------------ |
+| `normalizeLocale()`               | 抛错                     |
+| `isRegion()`                      | 抛错                     |
+| `getLocale()` / `getLocaleSync()` | 抛错（需要规范化标签）   |
+| `setLocale()`                     | reject（需要规范化标签） |
+| `clearLocale()`                   | 正常工作                 |
+
+唯一的逃生口是 `normalize: false`。此时 `getLocale()` 与 `setLocale()` 可在没有 `Intl.Locale` 的情况下工作（跳过校验与规范化），但 `isRegion()` / `isCurrentRegion()` 仍然依赖它。
 
 ## 开发
 

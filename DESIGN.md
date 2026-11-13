@@ -1,7 +1,7 @@
 # locale-pref 设计白皮书
 
 > 版本：1.0
-> 状态：待实现
+> 状态：已实现
 > 目标读者：实现该库的工程 Agent
 > 包名：`locale-pref`
 
@@ -102,6 +102,7 @@ interface LocalePref {
 
 **异常要求**：
 - 适配器 `get` 抛错时，**捕获并继续回退链**，不向上抛出（记录到 `onError` 回调，`context` 为 `'storage'`）。
+- `normalize: true` 且运行时缺失 `Intl.Locale` 时抛错（见 §6.4），不静默降级。
 
 #### 3.2.2 `getLocaleSync(): string`
 - 仅当适配器是同步适配器时可用。
@@ -113,6 +114,7 @@ interface LocalePref {
 - 若 `normalize: true` 且 `normalizeLocale(locale)` 为 `null`，抛出 `RangeError`，消息包含非法标签。
 - 写入 `storage.set(storageKey, normalizedLocale, storageSetOptions)`。
 - 返回适配器的 Promise（或同步结果包装为 resolved Promise）。
+- `normalize: true` 且运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
 #### 3.2.4 `clearLocale(): Promise<void>`
 - 调用 `storage.remove(storageKey)`。
@@ -121,12 +123,14 @@ interface LocalePref {
 - 实现见第 6 节。
 - 非法 `locale` 或 `region` 返回 `false`，不抛错。
 - 大小写不敏感比较。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）；这是“平台能力缺失”，与“输入非法”不同。
 
 #### 3.2.6 `isCurrentRegion(region: string): Promise<boolean>`
 - 等价于 `isRegion(await this.getLocale(), region)`。
 
 #### 3.2.7 `normalizeLocale(locale: string): string | null`
 - 实现见第 6 节。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
 #### 3.2.8 `storage`
 - 只读属性，返回创建实例时使用的适配器。
@@ -218,6 +222,8 @@ function detectNavigatorLocale(): string | null;
 - `navigator` 不存在或 `navigator.languages` 非数组/为空 → 返回 `null`。
 - 遍历 `navigator.languages`，返回第一个 `normalizeLocale` 非 `null` 的值。
 - 不读取 `navigator.language` 作为额外来源（`languages` 已覆盖，且 `language` 是 `languages[0]` 的历史别名）。
+- 通过全局对象回退链读取 `navigator`（见 §6.4）。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
 ---
 
@@ -256,6 +262,20 @@ function normalizeLocale(locale: string): string | null {
 - `isRegion` 判断的是**语言标签本身是否携带该地区子标签**。
 - 它**不用于推断用户物理位置**，也不等同于 `Accept-Language` 的地区含义。
 - `en`、`zh` 这类无地区子标签的标签，对任何 `region` 都返回 `false`。
+
+### 6.4 平台能力要求（`Intl.Locale`）
+- `isRegion` 与 `normalizeLocale` 依赖 `Intl.Locale`。该 API 的浏览器支持下限为
+  Chrome 74 / Firefox 75 / Safari 14 / Edge 79，Node.js 20+ 原生支持。
+- 库**不内置 polyfill**（保持零依赖与 `sideEffects: false`），由使用方按需引入，
+  例如 `@formatjs/intl-locale`。
+- 运行时缺失 `Intl.Locale` 时**必须快速失败**：抛出带修复指引的 `Error`，而不是
+  退化为“恒 `false` / 恒 `null`”。静默降级会把用户语言判断错而不报错。
+  - 非法输入（非字符串、畸形标签）仍按 §3.2.5 返回 `false` / `null`，不抛错；
+    “平台能力缺失”与“输入非法”是两回事，前者抛错、后者不抛。
+- `normalize: false` 是逃生口：`getLocale` / `setLocale` 可在无 `Intl.Locale` 时工作，
+  但 `isRegion` / `isCurrentRegion` 仍依赖它。
+- `globalThis`（Chrome 71 / Firefox 65 / Safari 12.1）通过 `globalThis` → `self` →
+  `window` 回退链解析，其缺失不致命。
 
 ---
 
@@ -328,6 +348,8 @@ locale-pref/
 - `normalizeLocale('zh-hans-cn') === 'zh-Hans-CN'`
 - `normalizeLocale('') === null`
 - `normalizeLocale('!!') === null`
+- 运行时缺失 `Intl.Locale` → `normalizeLocale` / `isRegion` / `detectNavigatorLocale` 抛错，消息含 `Intl.Locale`（见 §6.4）。
+- 缺失 `globalThis` 时 `detectNavigatorLocale` 经 `self` / `window` 读取 `navigator`（见 §6.4）。
 
 ### 8.2 `getLocale` 回退链
 - 存储命中合法值 → 返回该值，不回退。
@@ -338,6 +360,7 @@ locale-pref/
 - 全部失败 → 返回 `defaultLocale`。
 - `defaultLocale` 非法 + `normalize: true` → 返回 `'en'`。
 - 适配器 `get` 抛错 → 回退继续，`onError` 被调用一次，`context === 'storage'`。
+- 运行时缺失 `Intl.Locale` + `normalize: true` → 抛错；+ `normalize: false` → 正常回退（见 §6.4）。
 
 ### 8.3 `getLocaleSync`
 - 同步适配器 → 返回与 `getLocale` 一致的结果。
@@ -377,7 +400,7 @@ locale-pref/
 4. `getLocaleSync` 的限制说明。
 5. `cookieAdapter` 在 Node 环境只读的说明。
 6. 自定义适配器示例。
-7. 浏览器兼容性说明（依赖 `Intl.Locale`，现代浏览器与 Node 20+ 原生支持）。
+7. 浏览器兼容性说明（依赖 `Intl.Locale`，列出精确版本下限、polyfill 名称与引入方式、缺失时的抛错行为，见 §6.4）。
 
 ---
 
@@ -393,6 +416,9 @@ locale-pref/
 - [ ] 在 Node 20.19 与 22.x 下 `node --test` 或 Vitest 均通过。
 - [ ] `isRegion` 对非法输入不抛错。
 - [ ] `getLocaleSync` 对异步适配器抛错且消息准确。
+- [ ] 运行时缺失 `Intl.Locale` 时 `isRegion` / `normalizeLocale` / `detectNavigatorLocale` 抛错，消息含修复指引（见 §6.4）。
+- [ ] 缺失 `globalThis` 时 `detectNavigatorLocale` / `localStorageAdapter` 仍可经 `self` / `window` 工作（见 §6.4）。
+- [ ] 库产物不含任何 polyfill；`sideEffects: false` 保持不变。
 
 ---
 

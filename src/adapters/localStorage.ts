@@ -1,4 +1,5 @@
 import type { StorageAdapter } from '../types.js';
+import { getGlobal } from '../global.js';
 
 export interface LocalStorageAdapterOptions {
   /** Storage object to use. Defaults to `globalThis.localStorage`. */
@@ -11,7 +12,7 @@ export interface LocalStorageAdapterOptions {
  * obvious rather than deferred to the first read.
  */
 export function localStorageAdapter(options: LocalStorageAdapterOptions = {}): StorageAdapter {
-  const storage = options.storage ?? (globalThis as { localStorage?: Storage }).localStorage;
+  const storage = options.storage ?? getGlobal()?.localStorage;
   if (!storage) {
     throw new Error('localStorage is not available in this environment');
   }
