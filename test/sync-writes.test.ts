@@ -84,6 +84,19 @@ describe('clearLocaleSync', () => {
     expect(storage.get('user_locale')).toBe(null);
   });
 
+  it('forwards storageSetOptions to remove', () => {
+    const received: Array<unknown> = [];
+    const storage: StorageAdapter = {
+      isSync: true,
+      get: () => 'zh-CN',
+      set: () => undefined,
+      remove: (_key, options) => void received.push(options),
+    };
+    const options = { path: '/app', domain: 'example.com' };
+    createLocalePref({ storage, storageSetOptions: options }).clearLocaleSync();
+    expect(received[0]).toBe(options);
+  });
+
   it('propagates a synchronous adapter failure as a throw', () => {
     const storage: StorageAdapter = {
       isSync: true,

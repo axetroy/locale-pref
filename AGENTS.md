@@ -58,6 +58,11 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
   / `remove` rejections propagate. `localStorageAdapter` and
   `sessionStorageAdapter` share `webStorageAdapter()` in
   `src/adapters/webStorage.ts`.
+- `setLocale*` and `clearLocale*` both forward `storageSetOptions` to the adapter
+  (`storage.set(key, value, opts)` / `storage.remove(key, opts)`). A backend that
+  scopes entries by attribute — notably a cookie's `path`/`domain` — needs the
+  same options on delete as on write, or it deletes nothing. `cookieAdapter.remove`
+  always writes `max-age=0` and ignores `maxAge` in the options.
 - Writes and region checks have synchronous twins (`setLocaleSync`,
   `clearLocaleSync`, `isCurrentRegionSync`) alongside the `Promise`-returning
   methods, matching the existing `getLocaleSync`. Each `*Sync` method asserts

@@ -72,7 +72,7 @@ export function cookieAdapter(options: CookieAdapterOptions = {}): CookieAdapter
   const serialize = (key: string, value: string, maxAge: number, setOptions: StorageSetOptions): string => {
     const attributes = [`${key}=${encodeURIComponent(value)}`];
     attributes.push(`path=${setOptions.path ?? defaultPath}`);
-    attributes.push(`max-age=${setOptions.maxAge ?? maxAge}`);
+    attributes.push(`max-age=${maxAge}`);
     attributes.push(`SameSite=${setOptions.sameSite ?? 'Lax'}`);
     if (setOptions.secure === true) attributes.push('Secure');
     if (setOptions.domain) attributes.push(`domain=${setOptions.domain}`);
@@ -85,9 +85,12 @@ export function cookieAdapter(options: CookieAdapterOptions = {}): CookieAdapter
       return parseCookieValue(environment.readCookieString(), key);
     },
     set(key, value, setOptions = {}) {
-      environment.writeCookie(serialize(key, value, defaultMaxAge, setOptions));
+      environment.writeCookie(serialize(key, value, setOptions.maxAge ?? defaultMaxAge, setOptions));
     },
     remove(key, setOptions = {}) {
+      // A deletion must always expire immediately. `setOptions` describes the
+      // value being removed (its path/domain), not the tombstone's lifetime, so
+      // any `maxAge` in it is ignored.
       environment.writeCookie(serialize(key, '', 0, setOptions));
     },
   };

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cookieAdapter } from '../src/adapters/cookie.js';
+import { createLocalePref } from '../src/index.js';
 
 interface DocumentMock {
   cookie: string;
@@ -54,6 +55,13 @@ describe('cookieAdapter in the browser', () => {
     cookieAdapter({ defaultPath: '/app', defaultMaxAge: 60 }).set('user_locale', 'en');
     expect(documentMock.writes[0]).toContain('path=/app');
     expect(documentMock.writes[0]).toContain('max-age=60');
+  });
+
+  it('honours a per-write maxAge over defaultMaxAge', () => {
+    const documentMock = createDocumentMock();
+    vi.stubGlobal('document', documentMock);
+    cookieAdapter({ defaultMaxAge: 60 }).set('user_locale', 'en', { maxAge: 120 });
+    expect(documentMock.writes[0]).toContain('max-age=120');
   });
 
   it('adds Secure and domain only when requested', () => {
@@ -113,9 +121,34 @@ describe('cookieAdapter in the browser', () => {
     expect(written).toContain('domain=example.com');
   });
 
+  it('ignores maxAge in the removal options so the tombstone still expires', () => {
+    const documentMock = createDocumentMock();
+    vi.stubGlobal('document', documentMock);
+    // The options describe the value being removed, not the tombstone. A
+    // non-zero max-age here would re-create the cookie instead of deleting it.
+    cookieAdapter().remove('user_locale', { maxAge: 120 });
+    expect(documentMock.writes[0]).toContain('max-age=0');
+  });
+
   it('returns the raw value when it is not URI encoded', () => {
     vi.stubGlobal('document', createDocumentMock('user_locale=%E0%A4%A'));
     expect(cookieAdapter().get('user_locale')).toBe('%E0%A4%A');
+  });
+});
+
+describe('cookieAdapter with createLocalePref', () => {
+  it('deletes the cookie at the same path it was written to', async () => {
+    const documentMock = createDocumentMock();
+    vi.stubGlobal('document', documentMock);
+    const pref = createLocalePref({ storage: cookieAdapter(), storageSetOptions: { path: '/app' } });
+
+    await pref.setLocale('zh-CN');
+    expect(documentMock.writes[0]).toContain('path=/app');
+
+    await pref.clearLocale();
+    const tombstone = documentMock.writes[1];
+    expect(tombstone).toContain('path=/app');
+    expect(tombstone).toContain('max-age=0');
   });
 });
 

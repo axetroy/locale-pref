@@ -133,7 +133,7 @@ interface LocalePref {
 - 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"setLocaleSync() requires a synchronous storage adapter"`。
 
 #### 3.2.4 `clearLocale(): Promise<void>`
-- 调用 `storage.remove(storageKey)`。
+- 调用 `storage.remove(storageKey, storageSetOptions)`，将写入时使用的属性（如 cookie 的 `path`/`domain`）一并传入，使按属性区分的后端能删除正确的条目。
 
 #### 3.2.4.1 `clearLocaleSync(): void`
 - 与 `clearLocale` 同行为，但不返回 Promise；失败以 `throw` 传递。
@@ -165,7 +165,7 @@ interface LocalePref {
 interface StorageAdapter {
   get(key: string): string | null | Promise<string | null>;
   set(key: string, value: string, options?: StorageSetOptions): void | Promise<void>;
-  remove(key: string): void | Promise<void>;
+  remove(key: string, options?: StorageSetOptions): void | Promise<void>;
   /** 可选：标记为同步适配器，供 getLocaleSync 判断 */
   readonly isSync?: boolean;
 }
@@ -223,7 +223,7 @@ function cookieAdapter(options?: {
 - **写入**：
   - 浏览器环境：拼接 `key=encodeURIComponent(value); path=...; max-age=...; SameSite=...; Secure; Domain=...` 写入 `document.cookie`。
   - Node 环境：**抛出 Error**，消息为 `"cookieAdapter is read-only in Node.js environment"`。
-- **删除**：写入同名 cookie，`max-age=0`，其余属性（path/domain）与写入一致。
+- **删除**：写入同名 cookie，`max-age=0`，其余属性（path/domain）与写入一致。`remove` 忽略 `maxAge`：选项描述的是被删除的值，而非墓碑的有效期，因此删除永远立即过期。
 - **`isSync`**：`true`。
 - `sameSite` 默认 `'Lax'`；`secure` 仅当显式传入 `true` 时添加。
 

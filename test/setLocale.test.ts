@@ -87,6 +87,18 @@ describe('clearLocale', () => {
     expect(storage.get('user_locale')).toBe(null);
   });
 
+  it('forwards storageSetOptions to remove', async () => {
+    const received: Array<StorageSetOptions | undefined> = [];
+    const storage: StorageAdapter = {
+      get: () => 'zh-CN',
+      set: () => undefined,
+      remove: (_key, options) => void received.push(options),
+    };
+    const options: StorageSetOptions = { path: '/app', domain: 'example.com' };
+    await createLocalePref({ storage, storageSetOptions: options }).clearLocale();
+    expect(received[0]).toBe(options);
+  });
+
   it('supports an asynchronous adapter', async () => {
     const store = new Map<string, string>([['user_locale', 'zh-CN']]);
     const storage: StorageAdapter = {

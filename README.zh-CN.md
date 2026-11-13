@@ -189,7 +189,7 @@ interface LocalePref {
 
 #### `clearLocaleSync(): void`
 
-移除已存储的语言（`storage.remove(storageKey)`），因此下一次 `getLocaleSync()` 会重新走一遍回退链。仅可用于同步适配器。
+移除已存储的语言，因此下一次 `getLocaleSync()` 会重新走一遍回退链。调用 `storage.remove(storageKey, storageSetOptions)`：写入时的选项（如 cookie 的 `path`/`domain`）会被一并传入，使按属性区分的后端删除正确的条目。仅可用于同步适配器。
 
 #### `isCurrentRegionSync(region: string): boolean`
 
@@ -306,7 +306,7 @@ Error: cookieAdapter is read-only in Node.js environment
 | `defaultPath`   | `'/'`      | 默认 cookie 路径。                     |
 | `defaultMaxAge` | `31536000` | 默认 cookie 有效期（秒，即一年）。     |
 
-写入格式为 `key=encodeURIComponent(value); path=…; max-age=…; SameSite=…`，仅当传入 `secure: true` 时才添加 `Secure`。`remove` 会写入同样的 cookie，但 `max-age=0`。`isSync: true`。
+写入格式为 `key=encodeURIComponent(value); path=…; max-age=…; SameSite=…`，仅当传入 `secure: true` 时才添加 `Secure`。单次写入的 `maxAge` 会覆盖 `defaultMaxAge`。`remove` 会写入同样的 cookie（相同的 `path`/`domain`），但 `max-age=0`，从而删除自己写入的 cookie；它会忽略选项中的 `maxAge`。`isSync: true`。
 
 ### `localStorageAdapter(options?)`
 
@@ -332,9 +332,9 @@ const storage: StorageAdapter = {
     session.set(key, value);
     durable.set(key, value, options);
   },
-  remove: (key) => {
+  remove: (key, options) => {
     session.remove(key);
-    durable.remove(key);
+    durable.remove(key, options);
   },
 };
 
@@ -395,7 +395,7 @@ const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
 interface StorageAdapter {
   get(key: string): string | null | Promise<string | null>;
   set(key: string, value: string, options?: StorageSetOptions): void | Promise<void>;
-  remove(key: string): void | Promise<void>;
+  remove(key: string, options?: StorageSetOptions): void | Promise<void>;
   readonly isSync?: boolean;
 }
 
