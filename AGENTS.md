@@ -12,11 +12,12 @@ from Prettier.
 
 ## Environment
 
-- Node.js 20.19.0+ (`.nvmrc` pins the development version).
+- Node.js 20.19.0+ is the supported runtime floor. Development uses the latest
+  LTS, pinned in `.nvmrc` (currently Node 26).
 - pnpm only. The version is pinned in `package.json#packageManager`.
 - `pnpm install --frozen-lockfile` is what CI runs; keep `pnpm-lock.yaml` in sync.
 - The library and its tests run on Node 20.19+. The `changeset` CLI (dev-only,
-  `@changesets/cli` v3) needs Node 22.11+, so use Node 24 for release work.
+  `@changesets/cli` v3) needs Node 22.11+, so use the pinned LTS for release work.
 
 ## Commands
 

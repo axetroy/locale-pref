@@ -1,5 +1,7 @@
 # locale-pref
 
+**English** | [简体中文](./README.zh-CN.md)
+
 Zero-dependency locale preference toolkit for JavaScript and TypeScript.
 
 `locale-pref` answers three questions and nothing more:

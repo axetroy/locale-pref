@@ -76,16 +76,16 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
     "@changesets/cli": "3.0.3",
-    "@eslint/js": "9.39.5",
-    "@types/node": "24.19.2",
-    "@vitest/coverage-v8": "4.1.12",
-    "eslint": "9.39.5",
-    "globals": "16.5.0",
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.6.6",
+    "@vitest/coverage-v8": "5.1.0",
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
     "prettier": "3.10.1",
-    "publint": "0.3.16",
-    "rimraf": "6.0.1",
-    "typescript": "5.9.3",
+    "publint": "0.3.25",
+    "rimraf": "6.1.4",
+    "typescript": "6.0.3",
     "typescript-eslint": "8.72.2",
-    "vitest": "4.1.12"
+    "vitest": "5.1.0"
   }
 }

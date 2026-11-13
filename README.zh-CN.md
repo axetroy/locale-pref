@@ -1,0 +1,288 @@
+# locale-pref
+
+[English](./README.md) | **简体中文**
+
+零依赖的语言偏好工具库，适用于 JavaScript 与 TypeScript。
+
+`locale-pref` 只回答三个问题，不多做任何事：
+
+1. **用户想要什么语言？** 从可插拔的存储后端读取，并按可配置的回退链依次尝试。
+2. **记住用户的选择。** 将语言标签持久化到 cookie、`localStorage` 或自定义后端。
+3. **这个标签属于某个地区吗？** 使用 `Intl.Locale` 匹配 BCP 47 标签中的地区子标签。
+
+它是纯 ESM、零运行时依赖，同时支持浏览器与 Node.js（含 SSR）。
+
+## 安装
+
+```sh
+npm install locale-pref
+# pnpm add locale-pref
+# yarn add locale-pref
+```
+
+## 快速开始
+
+### 浏览器 + Cookie
+
+```ts
+import { createLocalePref } from 'locale-pref';
+
+const pref = createLocalePref();
+
+const locale = await pref.getLocale(); // 例如 'zh-CN'
+await pref.setLocale('en-US'); // 写入 cookie，下次请求即可读取
+```
+
+默认适配器是 `cookieAdapter()`，当服务端在渲染时需要知道语言时，这是最合适的选择。
+
+### 浏览器 + `localStorage`
+
+```ts
+import { createLocalePref, localStorageAdapter } from 'locale-pref';
+
+const pref = createLocalePref({
+  storage: localStorageAdapter(),
+  storageKey: 'lang',
+  fallback: ['navigator', 'en'],
+  defaultLocale: 'en',
+});
+
+const locale = await pref.getLocale();
+await pref.setLocale('fr-CA');
+```
+
+### 服务端渲染（SSR）
+
+服务端没有 `document`，也没有 `navigator`，因此把请求头中的 `Cookie` 传给只读适配器。先解析出语言，再渲染。
+
+```ts
+import { createLocalePref, cookieAdapter } from 'locale-pref';
+
+// Express：`req.headers.cookie` 存放原始 Cookie 请求头。
+export function resolveRequestLocale(cookieHeader: string | undefined): string {
+  const pref = createLocalePref({
+    storage: cookieAdapter({ cookieString: cookieHeader }),
+    fallback: ['en'],
+    defaultLocale: 'en',
+  });
+  return pref.getLocaleSync(); // 同步读取，无需 await
+}
+```
+
+要修改语言，请在你自己的响应处理中写入 cookie（`Set-Cookie`）——该适配器在服务端是只读的。参见
+[`cookieAdapter` 在 Node.js 中只读](#cookieadapter-在-nodejs-中只读)。
+
+## API 参考
+
+### `createLocalePref(options?): LocalePref`
+
+创建一个语言偏好实例。所有选项都有默认值，因此可以不传参数直接调用。
+
+| 选项                | 类型                           | 默认值            | 说明                                |
+| ------------------- | ------------------------------ | ----------------- | ----------------------------------- |
+| `storage`           | `StorageAdapter`               | `cookieAdapter()` | 语言存储的位置。                    |
+| `storageKey`        | `string`                       | `'user_locale'`   | 存储后端中使用的 key。              |
+| `fallback`          | `Array<'navigator' \| string>` | `['navigator']`   | 存储未命中时依次尝试的来源。        |
+| `defaultLocale`     | `string`                       | `'en'`            | 最终兜底语言。                      |
+| `storageSetOptions` | `StorageSetOptions`            | —                 | 传给 `storage.set` 的默认参数。     |
+| `normalize`         | `boolean`                      | `true`            | 是否校验并规范化语言标签。          |
+| `onError`           | `(error, context) => void`     | 静默              | 存储或 `navigator` 读取异常时触发。 |
+
+`fallback` 中的 `'navigator'` 是保留字：它读取 `navigator.languages`。其他字符串视为固定的 locale 候选。非法的选项值会抛出 `TypeError`，并在消息中指明字段名。
+
+### `LocalePref` 实例
+
+```ts
+interface LocalePref {
+  getLocale(): Promise<string>;
+  getLocaleSync(): string;
+  setLocale(locale: string): Promise<void>;
+  clearLocale(): Promise<void>;
+  isRegion(locale: string, region: string): boolean;
+  isCurrentRegion(region: string): Promise<boolean>;
+  normalizeLocale(locale: string): string | null;
+  readonly storage: StorageAdapter;
+}
+```
+
+#### `getLocale(): Promise<string>`
+
+按回退链顺序返回第一个合法的语言标签：
+
+1. `storage.get(storageKey)`，若非空且合法（或可规范化）则返回。
+2. 依次遍历 `fallback`：
+   - `'navigator'` 读取 `navigator.languages`，返回第一个合法标签。
+   - 其他字符串若合法则返回。
+3. `defaultLocale`。
+
+当 `normalize` 为 `true` 时，每个候选值都会经过 `normalizeLocale`；返回 `null` 视为未命中，继续回退。若最终的 `defaultLocale` 非法，则返回 `'en'`。若适配器的 `get` 抛错，错误会被捕获，并以 `context === 'storage'` 上报给 `onError`，然后继续回退。
+
+#### `getLocaleSync(): string`
+
+解析逻辑与 `getLocale` 相同，只是不带 `Promise`。仅可用于同步适配器。参见[限制说明](#getlocalesync-需要同步适配器)。
+
+#### `setLocale(locale: string): Promise<void>`
+
+持久化语言。当 `normalize` 为 `true` 时，标签会先被规范化，非法标签会抛出 `RangeError`。写入方式为
+`storage.set(storageKey, value, storageSetOptions)`。
+
+#### `clearLocale(): Promise<void>`
+
+移除已存储的语言（`storage.remove(storageKey)`），因此下一次 `getLocale()` 会重新走一遍回退链。
+
+#### `isRegion(locale: string, region: string): boolean`
+
+返回语言标签是否携带指定的地区子标签。永不抛错：非法输入返回 `false`。比较不区分大小写。参见 [`isRegion` 语义](#isregion-语义)。
+
+#### `isCurrentRegion(region: string): Promise<boolean>`
+
+等价于 `isRegion(await getLocale(), region)`。
+
+#### `normalizeLocale(locale: string): string | null`
+
+规范化语言标签（见[工具函数](#工具函数)）。非法输入返回 `null`。
+
+#### `storage`
+
+实例创建时使用的只读适配器。
+
+### 工具函数
+
+这些函数同样从 `locale-pref/utils` 子路径导出，可以单独导入而不引入工厂函数，从而保持包体积精简：
+
+```ts
+import { detectNavigatorLocale, isRegion, normalizeLocale } from 'locale-pref/utils';
+```
+
+- **`normalizeLocale(locale)`** — 通过 `Intl.Locale.prototype.toString()` 返回规范的 BCP 47 标签
+  （`'zh-hans-cn'` → `'zh-Hans-CN'`），空串、纯空白或非法输入返回 `null`。
+- **`isRegion(locale, region)`** — 见[下文](#isregion-语义)。
+- **`detectNavigatorLocale()`** — 返回 `navigator.languages` 中第一个合法项，当 `navigator` 不存在、`languages` 不是非空数组、或没有合法项时返回 `null`。它刻意不读取
+  `navigator.language`，后者是 `navigator.languages[0]` 的历史别名。
+
+### `isRegion` 语义
+
+`isRegion` 判断的是**语言标签本身是否携带该地区子标签**。它**不用于推断用户物理位置**，也不等同于 `Accept-Language` 的地区含义。请勿用它做位置判断、货币或时区决策。
+
+没有地区子标签的标签对任何 `region` 都返回 `false`：
+
+```ts
+import { isRegion } from 'locale-pref';
+
+isRegion('zh-CN', 'CN'); // true
+isRegion('zh-Hans-CN', 'CN'); // true
+isRegion('zh', 'CN'); // false —— 没有地区子标签
+isRegion('en-US', 'CN'); // false
+isRegion('en-US', 'us'); // true —— 不区分大小写
+isRegion('not a tag!!', 'CN'); // false —— 永不抛错
+```
+
+### `getLocaleSync` 需要同步适配器
+
+`getLocaleSync` 只能用于设置了 `isSync: true` 的适配器。内置的 `cookieAdapter`、`localStorageAdapter` 和 `memoryAdapter` 都满足该条件。对异步适配器（未设置 `isSync`）调用它会抛出：
+
+```
+Error: getLocaleSync() requires a synchronous storage adapter
+```
+
+如果你的适配器可以同步实现，请设置 `isSync: true`；否则请使用 `getLocale()`。
+
+### `cookieAdapter` 在 Node.js 中只读
+
+在浏览器中，`cookieAdapter` 读写 `document.cookie`。在服务端，它读取你传入的 `cookieString`，并在写入时**抛错**：
+
+```
+Error: cookieAdapter is read-only in Node.js environment
+```
+
+这是有意为之：cookie 属于 HTTP 响应，服务端应自行设置。请用解析出的语言进行渲染，并在你的框架中输出 `Set-Cookie`。
+
+## 存储适配器
+
+### `cookieAdapter(options?)`
+
+| 选项            | 默认值     | 说明                                   |
+| --------------- | ---------- | -------------------------------------- |
+| `cookieString`  | —          | 在浏览器之外用于读取的 Cookie 请求头。 |
+| `defaultPath`   | `'/'`      | 默认 cookie 路径。                     |
+| `defaultMaxAge` | `31536000` | 默认 cookie 有效期（秒，即一年）。     |
+
+写入格式为 `key=encodeURIComponent(value); path=…; max-age=…; SameSite=…`，仅当传入 `secure: true` 时才添加 `Secure`。`remove` 会写入同样的 cookie，但 `max-age=0`。`isSync: true`。
+
+### `localStorageAdapter(options?)`
+
+默认使用 `globalThis.localStorage`。若未传入存储对象且环境没有 `localStorage`，则在创建时抛错。`set` 会忽略 `StorageSetOptions`。`isSync: true`。
+
+### `memoryAdapter(initial?)`
+
+基于 `Map` 的适配器，用于测试和短生命周期 Node 进程。可用 `memoryAdapter({ user_locale: 'zh-CN' })` 预置数据。`isSync: true`。
+
+### 编写自定义适配器
+
+实现 `StorageAdapter` 即可。方法可以是同步或异步的。
+
+```ts
+import { createLocalePref, type StorageAdapter } from 'locale-pref';
+
+const redisAdapter: StorageAdapter = {
+  async get(key) {
+    return (await client.get(key)) ?? null;
+  },
+  async set(key, value) {
+    await client.set(key, value);
+  },
+  async remove(key) {
+    await client.del(key);
+  },
+};
+
+const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
+```
+
+对于同步后端（例如服务端框架中的 cookie），加上 `isSync: true` 即可启用 `getLocaleSync`。
+
+```ts
+interface StorageAdapter {
+  get(key: string): string | null | Promise<string | null>;
+  set(key: string, value: string, options?: StorageSetOptions): void | Promise<void>;
+  remove(key: string): void | Promise<void>;
+  readonly isSync?: boolean;
+}
+
+interface StorageSetOptions {
+  maxAge?: number;
+  path?: string;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+  secure?: boolean;
+  domain?: string;
+}
+```
+
+## 浏览器与运行时兼容性
+
+`locale-pref` 依赖 `Intl.Locale`，现代浏览器（Chrome 74+、Firefox 75+、Safari 14+、Edge 79+）与 Node.js 20+ 均已原生支持。
+
+| 运行时   | 支持情况                       |
+| -------- | ------------------------------ |
+| Node.js  | 20.19.0 及以上                 |
+| 浏览器   | 任何支持 `Intl.Locale` 的版本  |
+| 模块格式 | 仅 ESM（不提供 CommonJS 构建） |
+
+CommonJS 使用方仍可通过动态 `import()` 加载本包。
+
+## 开发
+
+```sh
+pnpm install
+pnpm run verify   # 格式化、lint、类型检查、带覆盖率的测试、构建、包校验
+pnpm run test     # 运行一次测试
+pnpm run test:watch
+pnpm run build
+```
+
+项目使用 [Changesets](https://github.com/changesets/changesets) 管理版本。运行 `pnpm changeset` 描述变更；CI 会把待发布的 changeset 转成发布 PR，并在合并时通过
+[可信发布](https://docs.npmjs.com/trusted-publishers) 发布到 npm。
+
+## 许可证
+
+[MIT](./LICENSE)
