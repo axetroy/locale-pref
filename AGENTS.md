@@ -100,6 +100,16 @@ scripts/            CI helpers (dependency guard, entry-point smoke test)
   `document` mock). Do not introduce mocks for library code.
 - Comments explain non-obvious intent only; do not narrate the change history.
 
+## CI
+
+- GitHub Actions are pinned to a release commit SHA with a trailing
+  `# vX.Y.Z` comment (e.g. `actions/checkout@3d3c42e5… # v7.0.1`). Never
+  replace a SHA with a floating major tag; Dependabot reads the comment and
+  bumps the pins weekly.
+- `typescript-eslint` caps the supported TypeScript range
+  (`typescript >=4.8.4 <6.1.0` as of 8.72.2) and hard-errors on TS 7. Do not
+  bump `typescript` past that range until typescript-eslint widens it.
+
 ## Releasing
 
 Changesets drive versioning. On push to `main`, `.github/workflows/release.yml`
