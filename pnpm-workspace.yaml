@@ -1,0 +1,4 @@
+# Explicit allowlist of dependencies permitted to run install scripts.
+# Everything else is blocked, so a transitive dependency cannot silently gain
+# postinstall code. Add a package here only after reviewing what it runs.
+onlyBuiltDependencies: []

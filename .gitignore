@@ -1,0 +1,9 @@
+dist
+coverage
+node_modules
+*.log
+.DS_Store
+.idea
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

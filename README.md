@@ -1,0 +1,328 @@
+# locale-pref
+
+Zero-dependency locale preference toolkit for JavaScript and TypeScript.
+
+`locale-pref` answers three questions and nothing more:
+
+1. **What language does the user want?** Read it from a pluggable storage backend
+   with a configurable fallback chain.
+2. **Remember the user's choice.** Persist a language tag to a cookie,
+   `localStorage`, or your own backend.
+3. **Is this language tag for a given region?** Match the region subtag of a BCP 47
+   tag with `Intl.Locale`.
+
+It is pure ESM, has no runtime dependencies, and works in browsers and Node.js
+(including SSR).
+
+## Installation
+
+```sh
+npm install locale-pref
+# pnpm add locale-pref
+# yarn add locale-pref
+```
+
+## Quick start
+
+### Browser with cookies
+
+```ts
+import { createLocalePref } from 'locale-pref';
+
+const pref = createLocalePref();
+
+const locale = await pref.getLocale(); // e.g. 'zh-CN'
+await pref.setLocale('en-US'); // writes a cookie, readable on the next request
+```
+
+The default adapter is `cookieAdapter()`, which is the right choice when the
+server must know the locale while rendering.
+
+### Browser with `localStorage`
+
+```ts
+import { createLocalePref, localStorageAdapter } from 'locale-pref';
+
+const pref = createLocalePref({
+  storage: localStorageAdapter(),
+  storageKey: 'lang',
+  fallback: ['navigator', 'en'],
+  defaultLocale: 'en',
+});
+
+const locale = await pref.getLocale();
+await pref.setLocale('fr-CA');
+```
+
+### Server-side rendering (SSR)
+
+On the server there is no `document` and no `navigator`, so pass the incoming
+`Cookie` header to a read-only adapter. Resolve the locale, then render.
+
+```ts
+import { createLocalePref, cookieAdapter } from 'locale-pref';
+
+// Express: `req.headers.cookie` holds the raw Cookie header.
+export function resolveRequestLocale(cookieHeader: string | undefined): string {
+  const pref = createLocalePref({
+    storage: cookieAdapter({ cookieString: cookieHeader }),
+    fallback: ['en'],
+    defaultLocale: 'en',
+  });
+  return pref.getLocaleSync(); // synchronous, no await needed
+}
+```
+
+To change the locale, write the cookie in your own response handler
+(`Set-Cookie`) — the adapter is read-only on the server. See
+[`cookieAdapter` is read-only in Node.js](#cookieadapter-is-read-only-in-nodejs).
+
+## API reference
+
+### `createLocalePref(options?): LocalePref`
+
+Creates a locale preference instance. Every option has a default, so it can be
+called with no arguments.
+
+| Option              | Type                           | Default           | Description                                       |
+| ------------------- | ------------------------------ | ----------------- | ------------------------------------------------- |
+| `storage`           | `StorageAdapter`               | `cookieAdapter()` | Where the locale is stored.                       |
+| `storageKey`        | `string`                       | `'user_locale'`   | Key used inside the storage backend.              |
+| `fallback`          | `Array<'navigator' \| string>` | `['navigator']`   | Sources tried when storage misses.                |
+| `defaultLocale`     | `string`                       | `'en'`            | Last-resort locale.                               |
+| `storageSetOptions` | `StorageSetOptions`            | —                 | Defaults passed to `storage.set`.                 |
+| `normalize`         | `boolean`                      | `true`            | Validate and canonicalize tags.                   |
+| `onError`           | `(error, context) => void`     | silent            | Called when storage or `navigator` access throws. |
+
+`'navigator'` inside `fallback` is reserved: it reads `navigator.languages`. Any
+other string is treated as a fixed locale candidate. Invalid option values throw
+a `TypeError` naming the offending field.
+
+### The `LocalePref` instance
+
+```ts
+interface LocalePref {
+  getLocale(): Promise<string>;
+  getLocaleSync(): string;
+  setLocale(locale: string): Promise<void>;
+  clearLocale(): Promise<void>;
+  isRegion(locale: string, region: string): boolean;
+  isCurrentRegion(region: string): Promise<boolean>;
+  normalizeLocale(locale: string): string | null;
+  readonly storage: StorageAdapter;
+}
+```
+
+#### `getLocale(): Promise<string>`
+
+Returns the first valid tag found by walking the fallback chain:
+
+1. `storage.get(storageKey)`, if non-empty and valid (or normalizable).
+2. Each entry in `fallback`:
+   - `'navigator'` reads `navigator.languages` and returns the first valid tag.
+   - Any other string is returned if it is valid.
+3. `defaultLocale`.
+
+When `normalize` is `true`, every candidate is passed through `normalizeLocale`;
+a `null` result counts as a miss and the chain continues. If the final
+`defaultLocale` is invalid, `'en'` is returned. If the adapter's `get` throws,
+the error is caught, reported to `onError` with `context === 'storage'`, and the
+chain continues.
+
+#### `getLocaleSync(): string`
+
+Same resolution logic as `getLocale`, without the `Promise`. Only usable with a
+synchronous adapter. See [limitations](#getlocalesync-requires-a-synchronous-adapter).
+
+#### `setLocale(locale: string): Promise<void>`
+
+Persists the locale. When `normalize` is `true`, the tag is canonicalized first
+and an invalid tag throws a `RangeError`. Writes
+`storage.set(storageKey, value, storageSetOptions)`.
+
+#### `clearLocale(): Promise<void>`
+
+Removes the stored locale (`storage.remove(storageKey)`), so the next
+`getLocale()` walks the fallback chain again.
+
+#### `isRegion(locale: string, region: string): boolean`
+
+Returns whether the language tag carries the given region subtag. Never throws:
+invalid input returns `false`. Comparison is case-insensitive. See
+[`isRegion` semantics](#isregion-semantics).
+
+#### `isCurrentRegion(region: string): Promise<boolean>`
+
+Equivalent to `isRegion(await getLocale(), region)`.
+
+#### `normalizeLocale(locale: string): string | null`
+
+Canonicalizes a tag (see [utilities](#utilities)). Returns `null` for invalid
+input.
+
+#### `storage`
+
+The read-only adapter the instance was created with.
+
+### Utilities
+
+These are also exported from the `locale-pref/utils` subpath and can be imported
+without pulling in the factory, which keeps bundles small:
+
+```ts
+import { detectNavigatorLocale, isRegion, normalizeLocale } from 'locale-pref/utils';
+```
+
+- **`normalizeLocale(locale)`** — returns the canonical BCP 47 tag via
+  `Intl.Locale.prototype.toString()` (`'zh-hans-cn'` → `'zh-Hans-CN'`), or `null`
+  for empty, whitespace-only, or malformed input.
+- **`isRegion(locale, region)`** — see [below](#isregion-semantics).
+- **`detectNavigatorLocale()`** — returns the first valid entry of
+  `navigator.languages`, or `null` when `navigator` is absent, `languages` is not
+  a non-empty array, or no entry is valid. It deliberately does not read
+  `navigator.language`, which is the historical alias of `navigator.languages[0]`.
+
+### `isRegion` semantics
+
+`isRegion` tests whether the **language tag itself carries the region subtag**.
+It does not infer where the user physically is, and it is not the same as the
+region meaning of `Accept-Language`. Do not use it for location detection,
+currency, or time zone decisions.
+
+Tags without a region subtag return `false` for every region:
+
+```ts
+import { isRegion } from 'locale-pref';
+
+isRegion('zh-CN', 'CN'); // true
+isRegion('zh-Hans-CN', 'CN'); // true
+isRegion('zh', 'CN'); // false — no region subtag
+isRegion('en-US', 'CN'); // false
+isRegion('en-US', 'us'); // true — case-insensitive
+isRegion('not a tag!!', 'CN'); // false — never throws
+```
+
+### `getLocaleSync` requires a synchronous adapter
+
+`getLocaleSync` only works with an adapter that sets `isSync: true`. The built-in
+`cookieAdapter`, `localStorageAdapter`, and `memoryAdapter` all do. Calling it
+with an asynchronous adapter (one without `isSync`) throws:
+
+```
+Error: getLocaleSync() requires a synchronous storage adapter
+```
+
+If your adapter can be synchronous, set `isSync: true`; otherwise use
+`getLocale()`.
+
+### `cookieAdapter` is read-only in Node.js
+
+In the browser, `cookieAdapter` reads and writes `document.cookie`. On the
+server, it reads the `cookieString` you provide and **throws** on write:
+
+```
+Error: cookieAdapter is read-only in Node.js environment
+```
+
+This is deliberate: cookies belong to the HTTP response, so the server must set
+them itself. Use the resolved locale for rendering and emit `Set-Cookie` in your
+framework.
+
+## Storage adapters
+
+### `cookieAdapter(options?)`
+
+| Option          | Default    | Description                                       |
+| --------------- | ---------- | ------------------------------------------------- |
+| `cookieString`  | —          | Cookie header used for reads outside the browser. |
+| `defaultPath`   | `'/'`      | Default cookie path.                              |
+| `defaultMaxAge` | `31536000` | Default cookie lifetime in seconds (one year).    |
+
+Writes `key=encodeURIComponent(value); path=…; max-age=…; SameSite=…` and adds
+`Secure` only when `secure: true` is passed. `remove` writes the same cookie with
+`max-age=0`. `isSync: true`.
+
+### `localStorageAdapter(options?)`
+
+Uses `globalThis.localStorage` by default. Throws at creation time if no storage
+object is supplied and the environment has none. `set` ignores
+`StorageSetOptions`. `isSync: true`.
+
+### `memoryAdapter(initial?)`
+
+A `Map`-backed adapter for tests and short-lived Node processes. Seed it with
+`memoryAdapter({ user_locale: 'zh-CN' })`. `isSync: true`.
+
+### Writing a custom adapter
+
+Implement `StorageAdapter`. Methods may be synchronous or asynchronous.
+
+```ts
+import { createLocalePref, type StorageAdapter } from 'locale-pref';
+
+const redisAdapter: StorageAdapter = {
+  async get(key) {
+    return (await client.get(key)) ?? null;
+  },
+  async set(key, value) {
+    await client.set(key, value);
+  },
+  async remove(key) {
+    await client.del(key);
+  },
+};
+
+const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
+```
+
+For a synchronous backend (for example a cookie in a server framework), add
+`isSync: true` to enable `getLocaleSync`.
+
+```ts
+interface StorageAdapter {
+  get(key: string): string | null | Promise<string | null>;
+  set(key: string, value: string, options?: StorageSetOptions): void | Promise<void>;
+  remove(key: string): void | Promise<void>;
+  readonly isSync?: boolean;
+}
+
+interface StorageSetOptions {
+  maxAge?: number;
+  path?: string;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+  secure?: boolean;
+  domain?: string;
+}
+```
+
+## Browser and runtime compatibility
+
+`locale-pref` relies on `Intl.Locale`, which is available natively in modern
+browsers (Chrome 74+, Firefox 75+, Safari 14+, Edge 79+) and in Node.js 20+.
+
+| Runtime       | Supported                      |
+| ------------- | ------------------------------ |
+| Node.js       | 20.19.0 and later              |
+| Browsers      | Any with `Intl.Locale` support |
+| Module format | ESM only (no CommonJS build)   |
+
+CommonJS consumers can still load the package with a dynamic `import()`.
+
+## Development
+
+```sh
+pnpm install
+pnpm run verify   # format, lint, typecheck, tests with coverage, build, package lint
+pnpm run test     # run tests once
+pnpm run test:watch
+pnpm run build
+```
+
+The project uses [Changesets](https://github.com/changesets/changesets) for
+versioning. Run `pnpm changeset` to describe a change; CI turns pending
+changesets into a release pull request and publishes to npm with
+[trusted publishing](https://docs.npmjs.com/trusted-publishers) when it merges.
+
+## License
+
+[MIT](./LICENSE)

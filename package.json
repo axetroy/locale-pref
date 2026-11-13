@@ -1,0 +1,91 @@
+{
+  "name": "locale-pref",
+  "version": "0.0.0",
+  "description": "Zero-dependency locale preference toolkit: read, persist and match BCP 47 language tags in browsers and Node.js.",
+  "keywords": [
+    "locale",
+    "language",
+    "i18n",
+    "l10n",
+    "bcp47",
+    "intl",
+    "navigator",
+    "cookie",
+    "localstorage",
+    "ssr"
+  ],
+  "license": "MIT",
+  "author": "Axetroy <axetroy.dev@gmail.com>",
+  "homepage": "https://github.com/axetroy/locale-pref#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/axetroy/locale-pref.git"
+  },
+  "bugs": {
+    "url": "https://github.com/axetroy/locale-pref/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "packageManager": "pnpm@12.18.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.js",
+      "default": "./dist/utils.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rimraf dist coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:package": "publint && attw --pack . --profile esm-only",
+    "check:deps": "node scripts/check-zero-dependencies.mjs",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run check:deps && pnpm run test:smoke && pnpm run lint:package",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm run build && changeset publish",
+    "prepublishOnly": "pnpm run clean && pnpm run build"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@changesets/cli": "3.0.3",
+    "@eslint/js": "9.39.5",
+    "@types/node": "24.19.2",
+    "@vitest/coverage-v8": "4.1.12",
+    "eslint": "9.39.5",
+    "globals": "16.5.0",
+    "prettier": "3.10.1",
+    "publint": "0.3.16",
+    "rimraf": "6.0.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "4.1.12"
+  }
+}
