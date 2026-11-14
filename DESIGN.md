@@ -70,7 +70,12 @@ interface LocalePrefOptions {
 **要求**：
 - `fallback` 中 `'navigator'` 是保留字，表示读取 `navigator.languages`；其他字符串视为固定 locale 候选。
 - 所有选项都有默认值，`createLocalePref()` 无参可调用。
-- 对非法选项值（如 `storage` 不是对象、`fallback` 不是数组）应抛出 `TypeError`，并在消息中指明字段名。
+- `fallback` 会被**复制**后再使用，创建后调用方对原数组的修改不影响该实例。
+- 对非法选项值应抛出 `TypeError`，并在消息中指明字段名：
+  - `storage` 不是对象，或不含 `get`/`set`/`remove` 三个方法。
+  - `fallback` 不是数组，或数组元素不是字符串。
+  - `storageKey` / `defaultLocale` 不是字符串，或为空字符串（空 key 会导致读写静默失效）。
+  - `normalize` 不是布尔值、`storageSetOptions` 不是对象、`onError` 不是函数。
 
 ### 3.1.1 便捷默认实例
 ```typescript
@@ -123,6 +128,7 @@ interface LocalePref {
 - 回退逻辑与 `getLocale` 一致。
 
 #### 3.2.3 `setLocale(locale: string): Promise<void>`
+- 若 `locale` 不是字符串，抛出 `TypeError`（在 `normalize: false` 下同样生效，避免把非字符串写入后端）。
 - 若 `normalize: true` 且 `normalizeLocale(locale)` 为 `null`，抛出 `RangeError`，消息包含非法标签。
 - 写入 `storage.set(storageKey, normalizedLocale, storageSetOptions)`。
 - 返回适配器的 Promise（或同步结果包装为 resolved Promise）。
@@ -476,7 +482,9 @@ locale-pref/
 
 ### 8.9 边界
 - `createLocalePref({ fallback: [] })` 合法，回退直接到 `defaultLocale`。
-- `createLocalePref({ storage: 'not-an-object' })` → `TypeError`。
+- `createLocalePref({ storage: 'not-an-object' })` → `TypeError`；`storage` 为缺少 `get`/`set`/`remove` 的对象同样 → `TypeError`。
+- `createLocalePref({ fallback: [123] })` → `TypeError`；`createLocalePref({ storageKey: '' })` / `{ defaultLocale: '' }` → `TypeError`。
+- 创建后修改传入的 `fallback` 数组不影响实例行为。
 - `storageKey` 含特殊字符（如 `a.b`）在 cookie 中正确存取。
 
 ---

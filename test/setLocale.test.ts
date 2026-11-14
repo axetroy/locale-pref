@@ -38,6 +38,11 @@ describe('setLocale', () => {
     await expect(pref.setLocale('!!')).rejects.toThrow(/!!/);
   });
 
+  it('rejects a non-string tag even when normalize is disabled', async () => {
+    const pref = createLocalePref({ storage: memoryAdapter(), normalize: false });
+    await expect(pref.setLocale(123 as unknown as string)).rejects.toThrow(TypeError);
+  });
+
   it('forwards storageSetOptions to the adapter', async () => {
     const received: Array<StorageSetOptions | undefined> = [];
     const storage: StorageAdapter = {
@@ -153,6 +158,14 @@ describe('option validation', () => {
     await expect(pref.getLocale()).resolves.toBe('en');
   });
 
+  it('snapshots the fallback array so later mutation cannot change it', async () => {
+    vi.stubGlobal('navigator', undefined);
+    const fallback: string[] = [];
+    const pref = createLocalePref({ storage: memoryAdapter(), fallback, defaultLocale: 'de' });
+    fallback.push('en');
+    await expect(pref.getLocale()).resolves.toBe('de');
+  });
+
   it('rejects a non-object storage', () => {
     expect(() => createLocalePref({ storage: 'not-an-object' as unknown as StorageAdapter })).toThrow(TypeError);
     expect(() => createLocalePref({ storage: 'not-an-object' as unknown as StorageAdapter })).toThrow(/storage/);
@@ -167,12 +180,30 @@ describe('option validation', () => {
     expect(() => createLocalePref({ fallback: 'navigator' as unknown as string[] })).toThrow(/fallback/);
   });
 
+  it('rejects non-string fallback entries', () => {
+    expect(() => createLocalePref({ fallback: [123] as unknown as string[] })).toThrow(/fallback/);
+    expect(() => createLocalePref({ fallback: ['en', null] as unknown as string[] })).toThrow(TypeError);
+  });
+
+  it('rejects a storage object missing adapter methods', () => {
+    expect(() => createLocalePref({ storage: {} as unknown as StorageAdapter })).toThrow(TypeError);
+    expect(() => createLocalePref({ storage: { get: () => null } as unknown as StorageAdapter })).toThrow(/storage/);
+  });
+
   it('rejects a non-string storageKey', () => {
     expect(() => createLocalePref({ storageKey: 1 as unknown as string })).toThrow(/storageKey/);
   });
 
+  it('rejects an empty storageKey', () => {
+    expect(() => createLocalePref({ storageKey: '' })).toThrow(/storageKey/);
+  });
+
   it('rejects a non-string defaultLocale', () => {
     expect(() => createLocalePref({ defaultLocale: 1 as unknown as string })).toThrow(/defaultLocale/);
+  });
+
+  it('rejects an empty defaultLocale', () => {
+    expect(() => createLocalePref({ defaultLocale: '' })).toThrow(/defaultLocale/);
   });
 
   it('rejects a non-boolean normalize', () => {

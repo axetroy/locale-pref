@@ -104,6 +104,12 @@ scripts/            CI helpers (dependency guard, entry-point smoke test)
 - Tests use real implementations (including `memoryAdapter` and a small
   `document` mock). Do not introduce mocks for library code.
 - Comments explain non-obvious intent only; do not narrate the change history.
+- `assertOptions()` in `src/index.ts` is the single place for construction-time
+  validation: it checks every option's type, requires `storage` to expose
+  `get`/`set`/`remove`, requires `fallback` entries to be strings, and rejects
+  empty `storageKey`/`defaultLocale`. Keep it in sync with `LocalePrefOptions`
+  and with the DESIGN.md §3.1 list. `fallback` is copied on construction so
+  caller mutation cannot change resolution order.
 
 ## Releasing
 

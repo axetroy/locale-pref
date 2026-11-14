@@ -144,8 +144,14 @@ called with no arguments.
 | `onError`           | `(error, context) => void`     | silent            | Called when storage or `navigator` access throws. |
 
 `'navigator'` inside `fallback` is reserved: it reads `navigator.languages`. Any
-other string is treated as a fixed locale candidate. Invalid option values throw
-a `TypeError` naming the offending field.
+other string is treated as a fixed locale candidate. The array is copied, so
+mutating your own array after construction does not change the instance.
+
+Invalid option values throw a `TypeError` naming the offending field: a `storage`
+that is not an object or lacks `get`/`set`/`remove`; a `fallback` that is not an
+array or holds a non-string; a `storageKey` or `defaultLocale` that is not a
+non-empty string; and wrong types for `normalize`, `storageSetOptions`, or
+`onError`.
 
 ### `getDefaultLocalePref(): LocalePref`
 
