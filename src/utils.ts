@@ -114,3 +114,38 @@ export function isLanguage(locale: string, language: string): boolean {
     return false;
   }
 }
+
+/**
+ * Test whether a language tag resolves to a specific script subtag.
+ *
+ * Scripts are how Chinese distinguishes Simplified (`Hans`) from Traditional
+ * (`Hant`); they are a subtag of the language, not a separate language, so
+ * `zh-Hans` and `zh-Hant` are both `zh`. This is the script-level counterpart of
+ * {@link isRegion} and {@link isLanguage}. The second argument is a script code
+ * (`'Hans'`, `'Hant'`, `'Latn'`, `'Cyrl'`).
+ *
+ * The tag is maximized first (CLDR "likely subtags"), so a region-only tag still
+ * resolves: `zh-CN` is `Hans` and `zh-TW`/`zh-HK` are `Hant` even though neither
+ * carries an explicit script. This matches what users mean by "Simplified" and
+ * "Traditional". As with the other predicates, this inspects the tag itself
+ * only and does not infer anything about the user.
+ *
+ * Malformed or non-string input yields `false` and never throws. A runtime
+ * without `Intl.Locale` throws instead; see {@link createLocalePref}.
+ *
+ * @example
+ * isScript('zh-Hans-CN', 'Hans'); // true
+ * isScript('zh-CN', 'Hans'); // true — likely script of zh-CN
+ * isScript('zh-TW', 'Hant'); // true
+ * isScript('zh-TW', 'Hans'); // false
+ * isScript('en-US', 'Hant'); // false
+ */
+export function isScript(locale: string, script: string): boolean {
+  if (typeof locale !== 'string' || typeof script !== 'string') return false;
+  assertIntlLocale();
+  try {
+    return new Intl.Locale(locale).maximize().script?.toLowerCase() === script.toLowerCase();
+  } catch {
+    return false;
+  }
+}

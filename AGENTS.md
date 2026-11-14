@@ -105,11 +105,17 @@ scripts/            CI helpers (dependency guard, entry-point smoke test)
 - Tests use real implementations (including `memoryAdapter` and a small
   `document` mock). Do not introduce mocks for library code.
 - Comments explain non-obvious intent only; do not narrate the change history.
-- `isRegion(locale, region)` and `isLanguage(locale, language)` are sibling
-  predicates over the same `Intl.Locale` parse: region compares the `region`
-  subtag, language compares the `language` subtag. Both return `false` for
-  malformed or non-string input and throw only when `Intl.Locale` is absent. Keep
-  their wording and behaviour symmetric.
+- `isRegion(locale, region)`, `isLanguage(locale, language)`, and
+  `isScript(locale, script)` are sibling predicates over the same `Intl.Locale`
+  parse: region compares the `region` subtag, language the `language` subtag, and
+  script the `script` subtag. All three return `false` for malformed or
+  non-string input and throw only when `Intl.Locale` is absent. Keep their
+  wording and behaviour symmetric.
+- `isScript` calls `Intl.Locale.prototype.maximize()` before reading `script`, so
+  a region-only tag resolves through CLDR likely subtags (`zh-CN` → `Hans`,
+  `zh-TW`/`zh-HK`/`zh-MO` → `Hant`). Without maximize, `zh-CN`/`zh-TW` have
+  `script === undefined` and would all be `false`. Simplified/Traditional are
+  scripts, not languages: `zh-Hans` and `zh-Hant` are both language `zh`.
 - `assertOptions()` in `src/index.ts` is the single place for construction-time
   validation: it checks every option's type, requires `storage` to expose
   `get`/`set`/`remove`, requires `fallback` entries to be strings, and rejects

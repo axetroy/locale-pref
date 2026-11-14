@@ -10,7 +10,7 @@ import {
   memoryAdapter,
   sessionStorageAdapter,
 } from 'locale-pref';
-import { detectNavigatorLocale, isLanguage, isRegion, normalizeLocale } from 'locale-pref/utils';
+import { detectNavigatorLocale, isLanguage, isRegion, isScript, normalizeLocale } from 'locale-pref/utils';
 
 const pref = createLocalePref({ storage: memoryAdapter(), fallback: ['en'], defaultLocale: 'en-US' });
 
@@ -20,6 +20,10 @@ assert.equal(isRegion('zh-Hans-CN', 'cn'), true, 'isRegion matches a region subt
 assert.equal(isRegion('zh', 'CN'), false, 'isRegion rejects a tag without a region');
 assert.equal(isLanguage('zh-Hans-CN', 'zh'), true, 'isLanguage matches a primary language subtag');
 assert.equal(isLanguage('en-US', 'zh'), false, 'isLanguage rejects a different language');
+assert.equal(isScript('zh-Hans-CN', 'Hans'), true, 'isScript matches an explicit script');
+assert.equal(isScript('zh-CN', 'Hans'), true, 'isScript resolves the likely script of zh-CN');
+assert.equal(isScript('zh-TW', 'Hant'), true, 'isScript resolves the likely script of zh-TW');
+assert.equal(isScript('zh-TW', 'Hans'), false, 'isScript distinguishes Traditional from Simplified');
 assert.equal(normalizeLocale('zh-hans-cn'), 'zh-Hans-CN', 'normalizeLocale canonicalizes');
 assert.equal(normalizeLocale('!!'), null, 'normalizeLocale rejects a malformed tag');
 assert.equal(cookieAdapter({ cookieString: 'a=b' }).isSync, true, 'cookieAdapter is synchronous');
@@ -56,6 +60,7 @@ await pref.setLocale('zh-hans-cn');
 assert.equal(await pref.getLocale(), 'zh-Hans-CN', 'setLocale persists a normalized tag');
 assert.equal(await pref.isCurrentRegion('CN'), true, 'isCurrentRegion reflects the stored tag');
 assert.equal(await pref.isCurrentLanguage('zh'), true, 'isCurrentLanguage reflects the stored tag');
+assert.equal(await pref.isCurrentScript('Hans'), true, 'isCurrentScript reflects the stored tag');
 
 await pref.clearLocale();
 assert.equal(await pref.getLocale(), 'en', 'clearLocale falls back again');
@@ -65,6 +70,7 @@ assert.equal(pref.setLocaleSync('ja-JP'), undefined, 'setLocaleSync returns noth
 assert.equal(pref.getLocaleSync(), 'ja-JP', 'setLocaleSync writes synchronously');
 assert.equal(pref.isCurrentRegionSync('JP'), true, 'isCurrentRegionSync reads synchronously');
 assert.equal(pref.isCurrentLanguageSync('ja'), true, 'isCurrentLanguageSync reads synchronously');
+assert.equal(pref.isCurrentScriptSync('Jpan'), true, 'isCurrentScriptSync reads synchronously');
 assert.equal(pref.clearLocaleSync(), undefined, 'clearLocaleSync returns nothing');
 assert.equal(pref.getLocaleSync(), 'en', 'clearLocaleSync clears synchronously');
 

@@ -159,6 +159,25 @@ describe('isCurrentLanguageSync', () => {
   });
 });
 
+describe('isCurrentScriptSync', () => {
+  it('judges the stored script synchronously', () => {
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-TW' }) });
+    expect(pref.isCurrentScriptSync('Hant')).toBe(true);
+    expect(pref.isCurrentScriptSync('Hans')).toBe(false);
+  });
+
+  it('requires a synchronous adapter', () => {
+    const storage: StorageAdapter = {
+      get: async () => null,
+      set: async () => undefined,
+      remove: async () => undefined,
+    };
+    expect(() => createLocalePref({ storage }).isCurrentScriptSync('Hans')).toThrow(
+      'isCurrentScriptSync() requires a synchronous storage adapter',
+    );
+  });
+});
+
 describe('a fully synchronous flow', () => {
   it('never produces a promise', () => {
     const storage = memoryAdapter();

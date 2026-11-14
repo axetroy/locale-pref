@@ -150,6 +150,14 @@ describe('instance surface', () => {
     expect(pref.isLanguage('invalid_tag!!', 'zh')).toBe(false);
   });
 
+  it('delegates isScript to the utility', () => {
+    const pref = createLocalePref();
+    expect(pref.isScript('zh-Hans-CN', 'Hans')).toBe(true);
+    expect(pref.isScript('zh-TW', 'Hant')).toBe(true);
+    expect(pref.isScript('zh-TW', 'Hans')).toBe(false);
+    expect(pref.isScript('invalid_tag!!', 'Hans')).toBe(false);
+  });
+
   it('reports isCurrentRegion for the resolved locale', async () => {
     stubNavigator(['en-US']);
     const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
@@ -162,6 +170,13 @@ describe('instance surface', () => {
     const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
     await expect(pref.isCurrentLanguage('zh')).resolves.toBe(true);
     await expect(pref.isCurrentLanguage('en')).resolves.toBe(false);
+  });
+
+  it('reports isCurrentScript for the resolved locale', async () => {
+    stubNavigator(['en-US']);
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-TW' }) });
+    await expect(pref.isCurrentScript('Hant')).resolves.toBe(true);
+    await expect(pref.isCurrentScript('Hans')).resolves.toBe(false);
   });
 });
 

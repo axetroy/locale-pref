@@ -57,6 +57,11 @@ describe('asynchronous adapters', () => {
     await expect(createLocalePref({ storage: adapter }).isCurrentLanguage('ja')).resolves.toBe(true);
   });
 
+  it('resolves isCurrentScript against the async-backed locale', async () => {
+    const { adapter } = asyncAdapter({ user_locale: 'zh-TW' });
+    await expect(createLocalePref({ storage: adapter }).isCurrentScript('Hant')).resolves.toBe(true);
+  });
+
   it('reports a rejected get through onError and falls back', async () => {
     const onError = vi.fn();
     const storage: StorageAdapter = {

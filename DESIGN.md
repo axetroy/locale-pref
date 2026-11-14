@@ -158,6 +158,14 @@ interface LocalePref {
 - 大小写不敏感比较。
 - 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
 
+#### 3.2.5.2 `isScript(locale: string, script: string): boolean`
+- 实现见第 6 节。
+- 先对标签执行 `Intl.Locale.prototype.maximize()`（CLDR likely subtags），再比较书写系统子标签。
+- 因此仅有地区的标签也能解析：`zh-CN` → `Hans`，`zh-TW`/`zh-HK`/`zh-MO` → `Hant`。
+- 非法 `locale` 或 `script` 返回 `false`，不抛错。
+- 大小写不敏感比较。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
+
 #### 3.2.6 `isCurrentRegion(region: string): Promise<boolean>`
 - 等价于 `isRegion(await this.getLocale(), region)`。
 
@@ -171,6 +179,13 @@ interface LocalePref {
 #### 3.2.6.3 `isCurrentLanguageSync(language: string): boolean`
 - 等价于 `isLanguage(this.getLocaleSync(), language)`。
 - 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"isCurrentLanguageSync() requires a synchronous storage adapter"`。
+
+#### 3.2.6.4 `isCurrentScript(script: string): Promise<boolean>`
+- 等价于 `isScript(await this.getLocale(), script)`。
+
+#### 3.2.6.5 `isCurrentScriptSync(script: string): boolean`
+- 等价于 `isScript(this.getLocaleSync(), script)`。
+- 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"isCurrentScriptSync() requires a synchronous storage adapter"`。
 
 #### 3.2.7 `normalizeLocale(locale: string): string | null`
 - 实现见第 6 节。
@@ -298,6 +313,7 @@ function memoryAdapter(initial?: Record<string, string>): StorageAdapter;
 ```typescript
 function isRegion(locale: string, region: string): boolean;
 function isLanguage(locale: string, language: string): boolean;
+function isScript(locale: string, script: string): boolean;
 function normalizeLocale(locale: string): string | null;
 function detectNavigatorLocale(): string | null;
 ```
@@ -344,6 +360,24 @@ function isLanguage(locale: string, language: string): boolean {
 - `und`、空串或非法标签 → `language` 为 `undefined` 或解析失败 → 返回 `false`。
 - 不抛错。
 
+### 6.1.2 `isScript`
+```typescript
+function isScript(locale: string, script: string): boolean {
+  if (typeof locale !== 'string' || typeof script !== 'string') return false;
+  try {
+    return new Intl.Locale(locale).maximize().script?.toLowerCase() === script.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+```
+- 先 `maximize()` 补全 likely subtags，再比较 `script`（书写系统子标签）。
+- `script` 应为四字母书写系统代码（如 `'Hans'`、`'Hant'`、`'Latn'`、`'Cyrl'`）。
+- 关键：`zh-CN` 无显式 script，但 `maximize()` 按 CLDR likely subtags 得到 `Hans`；`zh-TW` 得到 `Hant`。若不 maximize，`zh-CN`/`zh-TW` 会因 `script === undefined` 而全部判 `false`。
+- 简体/繁体是 **script**，不是语言子级：`zh-Hans` 与 `zh-Hant` 的 `language` 都是 `zh`。
+- 空串、非法标签 → 返回 `false`。
+- 不抛错。
+
 ### 6.2 `normalizeLocale`
 ```typescript
 function normalizeLocale(locale: string): string | null {
@@ -364,6 +398,9 @@ function normalizeLocale(locale: string): string | null {
 - `en`、`zh` 这类无地区子标签的标签，对任何 `region` 都返回 `false`。
 - `isLanguage` 判断的是**语言标签本身的主语言子标签**，忽略地区与书写系统：`zh-Hant-TW` 与 `zh-Hans-CN` 都属于 `zh`。
 - 它同样**不用于推断用户**，只回答“这个标签是不是该语言”。
+- `isScript` 判断的是**标签解析出的书写系统子标签**。简体/繁体是 `Hans`/`Hant` 两个**书写系统**，二者语言都是 `zh`，属平级子标签而非语言子级。
+- `isScript` 会先 `maximize()`，所以只有地区的标签也能区分：`zh-CN`/`zh-SG` 视为简体，`zh-TW`/`zh-HK`/`zh-MO` 视为繁体。这是 CLDR likely subtags 推断，不是标签里显式写出的 script。
+- 组合用法：先 `isLanguage('zh')` 判定是中文，再用 `isScript('Hans')` / `isScript('Hant')` 细分简繁。
 
 ### 6.4 平台能力要求（`Intl.Locale`）
 - `isRegion` 与 `normalizeLocale` 依赖 `Intl.Locale`。该 API 的浏览器支持下限为

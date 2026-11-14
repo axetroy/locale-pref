@@ -3,6 +3,7 @@ import {
   detectNavigatorLocale,
   isLanguage as isLanguageTag,
   isRegion as isRegionTag,
+  isScript as isScriptTag,
   normalizeLocale,
 } from './utils.js';
 import type { LocalePref, LocalePrefOptions, StorageAdapter } from './types.js';
@@ -195,6 +196,19 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
     isCurrentLanguageSync(language: string): boolean {
       assertSyncAdapter('isCurrentLanguageSync');
       return isLanguageTag(resolveLocaleSync(), language);
+    },
+
+    isScript(locale: string, script: string): boolean {
+      return isScriptTag(locale, script);
+    },
+
+    async isCurrentScript(script: string): Promise<boolean> {
+      return isScriptTag(await getLocale(), script);
+    },
+
+    isCurrentScriptSync(script: string): boolean {
+      assertSyncAdapter('isCurrentScriptSync');
+      return isScriptTag(resolveLocaleSync(), script);
     },
 
     getLocale,
