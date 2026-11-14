@@ -126,7 +126,9 @@ export function resolveRequestLocale(cookieHeader: string | undefined): string {
 | `normalize`         | `boolean`                      | `true`            | 是否校验并规范化语言标签。          |
 | `onError`           | `(error, context) => void`     | 静默              | 存储或 `navigator` 读取异常时触发。 |
 
-`fallback` 中的 `'navigator'` 是保留字：它读取 `navigator.languages`。其他字符串视为固定的 locale 候选。非法的选项值会抛出 `TypeError`，并在消息中指明字段名。
+`fallback` 中的 `'navigator'` 是保留字：它读取 `navigator.languages`。其他字符串视为固定的 locale 候选。该数组会被复制，构造之后再修改你自己的数组不会影响实例。
+
+非法的选项值会抛出 `TypeError`，并在消息中指明字段名：`storage` 不是对象或缺少 `get`/`set`/`remove`；`fallback` 不是数组或含非字符串元素；`storageKey` / `defaultLocale` 不是非空字符串；以及 `normalize`、`storageSetOptions`、`onError` 类型错误。
 
 ### `getDefaultLocalePref(): LocalePref`
 

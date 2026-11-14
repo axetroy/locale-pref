@@ -7,20 +7,31 @@ const DEFAULT_LOCALE = 'en';
 const FALLBACK_LOCALE = 'en';
 const NAVIGATOR_SOURCE = 'navigator';
 
+function isStorageAdapter(value: unknown): value is StorageAdapter {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<StorageAdapter>;
+  return (
+    typeof candidate.get === 'function' && typeof candidate.set === 'function' && typeof candidate.remove === 'function'
+  );
+}
+
 function assertOptions(options: LocalePrefOptions): void {
   const { storage, fallback, storageKey, defaultLocale, normalize, storageSetOptions, onError } = options;
 
-  if (storage !== undefined && (typeof storage !== 'object' || storage === null)) {
-    throw new TypeError('`storage` must be an object implementing the StorageAdapter interface');
+  if (storage !== undefined && !isStorageAdapter(storage)) {
+    throw new TypeError('`storage` must be an object implementing the StorageAdapter interface (get/set/remove)');
   }
   if (fallback !== undefined && !Array.isArray(fallback)) {
     throw new TypeError('`fallback` must be an array');
   }
-  if (storageKey !== undefined && typeof storageKey !== 'string') {
-    throw new TypeError('`storageKey` must be a string');
+  if (fallback !== undefined && fallback.some((source) => typeof source !== 'string')) {
+    throw new TypeError('`fallback` entries must be strings');
   }
-  if (defaultLocale !== undefined && typeof defaultLocale !== 'string') {
-    throw new TypeError('`defaultLocale` must be a string');
+  if (storageKey !== undefined && (typeof storageKey !== 'string' || storageKey === '')) {
+    throw new TypeError('`storageKey` must be a non-empty string');
+  }
+  if (defaultLocale !== undefined && (typeof defaultLocale !== 'string' || defaultLocale === '')) {
+    throw new TypeError('`defaultLocale` must be a non-empty string');
   }
   if (normalize !== undefined && typeof normalize !== 'boolean') {
     throw new TypeError('`normalize` must be a boolean');
@@ -46,7 +57,9 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
 
   const storage: StorageAdapter = options.storage ?? cookieAdapter();
   const storageKey = options.storageKey ?? DEFAULT_STORAGE_KEY;
-  const fallback = options.fallback ?? [NAVIGATOR_SOURCE];
+  // Snapshot the fallback chain so later mutation of the caller's array cannot
+  // silently change this instance's resolution order.
+  const fallback = options.fallback === undefined ? [NAVIGATOR_SOURCE] : [...options.fallback];
   const defaultLocale = options.defaultLocale ?? DEFAULT_LOCALE;
   const storageSetOptions = options.storageSetOptions;
   const normalize = options.normalize ?? true;
@@ -76,6 +89,9 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
 
   /** Validate and canonicalize a tag for writing, honoring `normalize`. */
   const normalizeForWrite = (locale: string): string => {
+    if (typeof locale !== 'string') {
+      throw new TypeError(`setLocale() expects a string, received ${typeof locale}`);
+    }
     if (!normalize) return locale;
     const normalized = normalizeLocale(locale);
     if (normalized === null) {
