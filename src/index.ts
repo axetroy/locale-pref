@@ -1,11 +1,5 @@
 import { cookieAdapter } from './adapters/cookie.js';
-import {
-  detectNavigatorLocale,
-  isLanguage as isLanguageTag,
-  isRegion as isRegionTag,
-  isScript as isScriptTag,
-  normalizeLocale,
-} from './utils.js';
+import { detectNavigatorLocale, isLanguage, isRegion, isScript, normalizeLocale } from './utils.js';
 import type { LocalePref, LocalePrefOptions, StorageAdapter } from './types.js';
 
 const DEFAULT_STORAGE_KEY = 'user_locale';
@@ -170,45 +164,31 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
       return storage;
     },
 
-    normalizeLocale,
-
-    isRegion(locale: string, region: string): boolean {
-      return isRegionTag(locale, region);
+    async isRegion(region: string): Promise<boolean> {
+      return isRegion(await getLocale(), region);
     },
 
-    isLanguage(locale: string, language: string): boolean {
-      return isLanguageTag(locale, language);
+    isRegionSync(region: string): boolean {
+      assertSyncAdapter('isRegionSync');
+      return isRegion(resolveLocaleSync(), region);
     },
 
-    async isCurrentRegion(region: string): Promise<boolean> {
-      return isRegionTag(await getLocale(), region);
+    async isLanguage(language: string): Promise<boolean> {
+      return isLanguage(await getLocale(), language);
     },
 
-    isCurrentRegionSync(region: string): boolean {
-      assertSyncAdapter('isCurrentRegionSync');
-      return isRegionTag(resolveLocaleSync(), region);
+    isLanguageSync(language: string): boolean {
+      assertSyncAdapter('isLanguageSync');
+      return isLanguage(resolveLocaleSync(), language);
     },
 
-    async isCurrentLanguage(language: string): Promise<boolean> {
-      return isLanguageTag(await getLocale(), language);
+    async isScript(script: string): Promise<boolean> {
+      return isScript(await getLocale(), script);
     },
 
-    isCurrentLanguageSync(language: string): boolean {
-      assertSyncAdapter('isCurrentLanguageSync');
-      return isLanguageTag(resolveLocaleSync(), language);
-    },
-
-    isScript(locale: string, script: string): boolean {
-      return isScriptTag(locale, script);
-    },
-
-    async isCurrentScript(script: string): Promise<boolean> {
-      return isScriptTag(await getLocale(), script);
-    },
-
-    isCurrentScriptSync(script: string): boolean {
-      assertSyncAdapter('isCurrentScriptSync');
-      return isScriptTag(resolveLocaleSync(), script);
+    isScriptSync(script: string): boolean {
+      assertSyncAdapter('isScriptSync');
+      return isScript(resolveLocaleSync(), script);
     },
 
     getLocale,

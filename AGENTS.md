@@ -40,20 +40,22 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
 - Zero runtime dependencies. `scripts/check-zero-dependencies.mjs` fails CI if
   `dependencies`, `peerDependencies`, or `optionalDependencies` are non-empty.
 - Pure ESM. There is no CommonJS build; `exports` maps only `import`/`default`.
-- The `exports` map exposes `.` and `./utils`. `isRegion`, `normalizeLocale`,
-  and `detectNavigatorLocale` live only on `locale-pref/utils`.
+- The `exports` map exposes `.` and `./utils`. The pure predicates `isRegion`,
+  `isLanguage`, `isScript`, `normalizeLocale`, and `detectNavigatorLocale` live
+  only on `locale-pref/utils`; the instance does not re-export them.
 - Core logic must not touch `document` or `window` directly; environment access
   goes through the adapters in `src/adapters/`. The ambient global object is read
   only through `getGlobal()` in `src/global.ts`.
 - `Intl.Locale` is a hard requirement. `normalizeLocale` / `isRegion` /
-  `detectNavigatorLocale` must throw an actionable error when it is missing
-  (never degrade to `null`/`false`). Invalid _input_ still returns `null`/`false`.
+  `isLanguage` / `isScript` / `detectNavigatorLocale` must throw an actionable
+  error when it is missing (never degrade to `null`/`false`). Invalid _input_
+  still returns `null`/`false`.
 - `getDefaultLocalePref()` is a lazy process-wide singleton created on first
   call (never at module top level, to keep `sideEffects: false`). It must stay
   documented as unsafe for multi-tenant SSR; per-request `createLocalePref()` is
   the supported server pattern.
 - Adapters are sync when `isSync === true`, otherwise async. `getLocale` /
-  `setLocale` / `clearLocale` / `isCurrentRegion` must `await` adapter results so
+  `setLocale` / `clearLocale` / `isRegion` must `await` adapter results so
   both work. A `get` rejection is reported to `onError` and falls through; `set`
   / `remove` rejections propagate. `localStorageAdapter` and
   `sessionStorageAdapter` share `webStorageAdapter()` in
@@ -64,8 +66,8 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
   same options on delete as on write, or it deletes nothing. `cookieAdapter.remove`
   always writes `max-age=0` and ignores `maxAge` in the options.
 - Writes and locale checks have synchronous twins (`setLocaleSync`,
-  `clearLocaleSync`, `isCurrentRegionSync`, `isCurrentLanguageSync`) alongside the
-  `Promise`-returning methods, matching the existing `getLocaleSync`. Each `*Sync`
+  `clearLocaleSync`, `isRegionSync`, `isLanguageSync`, `isScriptSync`) alongside
+  the `Promise`-returning methods, matching the existing `getLocaleSync`. Each `*Sync`
   method asserts
   `isSync === true` via `assertSyncAdapter()` and otherwise throws
   `"<method>() requires a synchronous storage adapter"`. They exist so a fully
@@ -85,7 +87,7 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
 src/index.ts        createLocalePref / getDefaultLocalePref, re-exports
 src/adapters/       cookie.ts, localStorage.ts, sessionStorage.ts, webStorage.ts, memory.ts
 src/global.ts       getGlobal(): globalThis -> self -> window fallback
-src/utils.ts        isRegion / normalizeLocale / detectNavigatorLocale
+src/utils.ts        isRegion / isLanguage / isScript / normalizeLocale / detectNavigatorLocale
 src/types.ts        public interfaces (excluded from coverage)
 test/               Vitest suites, one file per source area
                     (getLocale / setLocale / sync-writes / utils / global /
@@ -110,7 +112,13 @@ scripts/            CI helpers (dependency guard, entry-point smoke test)
   parse: region compares the `region` subtag, language the `language` subtag, and
   script the `script` subtag. All three return `false` for malformed or
   non-string input and throw only when `Intl.Locale` is absent. Keep their
-  wording and behaviour symmetric.
+  wording and behaviour symmetric. They live only on `locale-pref/utils`.
+- The instance exposes only current-locale checks: `isRegion(region)` /
+  `isRegionSync(region)` (and the `isLanguage*` / `isScript*` twins). It does NOT
+  duplicate the pure `isRegion(locale, region)` form or expose `normalizeLocale` —
+  do not add argument-count overloads, which would make `pref.isRegion('zh-CN')`
+  mean "current region is 'zh-CN'" and switch the return type by arity. The
+  instance methods delegate to the `locale-pref/utils` functions.
 - `isScript` calls `Intl.Locale.prototype.maximize()` before reading `script`, so
   a region-only tag resolves through CLDR likely subtags (`zh-CN` → `Hans`,
   `zh-TW`/`zh-HK`/`zh-MO` → `Hant`). Without maximize, `zh-CN`/`zh-TW` have

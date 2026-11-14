@@ -58,9 +58,9 @@ assert.ok(detected === null || typeof detected === 'string', 'detectNavigatorLoc
 // A write must land in the injected backend and survive a read.
 await pref.setLocale('zh-hans-cn');
 assert.equal(await pref.getLocale(), 'zh-Hans-CN', 'setLocale persists a normalized tag');
-assert.equal(await pref.isCurrentRegion('CN'), true, 'isCurrentRegion reflects the stored tag');
-assert.equal(await pref.isCurrentLanguage('zh'), true, 'isCurrentLanguage reflects the stored tag');
-assert.equal(await pref.isCurrentScript('Hans'), true, 'isCurrentScript reflects the stored tag');
+assert.equal(await pref.isRegion('CN'), true, 'isRegion reflects the stored tag');
+assert.equal(await pref.isLanguage('zh'), true, 'isLanguage reflects the stored tag');
+assert.equal(await pref.isScript('Hans'), true, 'isScript reflects the stored tag');
 
 await pref.clearLocale();
 assert.equal(await pref.getLocale(), 'en', 'clearLocale falls back again');
@@ -68,9 +68,9 @@ assert.equal(await pref.getLocale(), 'en', 'clearLocale falls back again');
 // The synchronous twins keep a fully synchronous flow free of promises.
 assert.equal(pref.setLocaleSync('ja-JP'), undefined, 'setLocaleSync returns nothing');
 assert.equal(pref.getLocaleSync(), 'ja-JP', 'setLocaleSync writes synchronously');
-assert.equal(pref.isCurrentRegionSync('JP'), true, 'isCurrentRegionSync reads synchronously');
-assert.equal(pref.isCurrentLanguageSync('ja'), true, 'isCurrentLanguageSync reads synchronously');
-assert.equal(pref.isCurrentScriptSync('Jpan'), true, 'isCurrentScriptSync reads synchronously');
+assert.equal(pref.isRegionSync('JP'), true, 'isRegionSync reads synchronously');
+assert.equal(pref.isLanguageSync('ja'), true, 'isLanguageSync reads synchronously');
+assert.equal(pref.isScriptSync('Jpan'), true, 'isScriptSync reads synchronously');
 assert.equal(pref.clearLocaleSync(), undefined, 'clearLocaleSync returns nothing');
 assert.equal(pref.getLocaleSync(), 'en', 'clearLocaleSync clears synchronously');
 
