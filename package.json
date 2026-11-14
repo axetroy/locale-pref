@@ -1,6 +1,6 @@
 {
   "name": "locale-pref",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zero-dependency locale preference toolkit: read, persist and match BCP 47 language tags in browsers and Node.js.",
   "keywords": [
     "locale",
