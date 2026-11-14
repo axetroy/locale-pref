@@ -63,10 +63,28 @@ export interface LocalePref {
   setLocaleSync(locale: string): void;
   clearLocale(): Promise<void>;
   clearLocaleSync(): void;
-  isRegion(locale: string, region: string): boolean;
-  isCurrentRegion(region: string): Promise<boolean>;
-  isCurrentRegionSync(region: string): boolean;
-  normalizeLocale(locale: string): string | null;
+  /**
+   * Whether the current locale carries `region`. For a pure check against an
+   * arbitrary tag, use {@link isRegion} from `locale-pref/utils`.
+   */
+  isRegion(region: string): Promise<boolean>;
+  /** Synchronous twin of {@link isRegion}; requires a synchronous adapter. */
+  isRegionSync(region: string): boolean;
+  /**
+   * Whether the current locale's primary language subtag is `language`. For a
+   * pure check against an arbitrary tag, use {@link isLanguage} from
+   * `locale-pref/utils`.
+   */
+  isLanguage(language: string): Promise<boolean>;
+  /** Synchronous twin of {@link isLanguage}; requires a synchronous adapter. */
+  isLanguageSync(language: string): boolean;
+  /**
+   * Whether the current locale resolves to `script`. For a pure check against an
+   * arbitrary tag, use {@link isScript} from `locale-pref/utils`.
+   */
+  isScript(script: string): Promise<boolean>;
+  /** Synchronous twin of {@link isScript}; requires a synchronous adapter. */
+  isScriptSync(script: string): boolean;
   /** The adapter this instance was created with. */
   readonly storage: StorageAdapter;
 }

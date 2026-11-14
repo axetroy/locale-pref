@@ -96,10 +96,12 @@ interface LocalePref {
   setLocaleSync(locale: string): void;
   clearLocale(): Promise<void>;
   clearLocaleSync(): void;
-  isRegion(locale: string, region: string): boolean;
-  isCurrentRegion(region: string): Promise<boolean>;
-  isCurrentRegionSync(region: string): boolean;
-  normalizeLocale(locale: string): string | null;
+  isRegion(region: string): Promise<boolean>;
+  isRegionSync(region: string): boolean;
+  isLanguage(language: string): Promise<boolean>;
+  isLanguageSync(language: string): boolean;
+  isScript(script: string): Promise<boolean>;
+  isScriptSync(script: string): boolean;
   readonly storage: StorageAdapter;
 }
 ```
@@ -145,24 +147,23 @@ interface LocalePref {
 - 与 `clearLocale` 同行为，但不返回 Promise；失败以 `throw` 传递。
 - 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"clearLocaleSync() requires a synchronous storage adapter"`。
 
-#### 3.2.5 `isRegion(locale: string, region: string): boolean`
-- 实现见第 6 节。
-- 非法 `locale` 或 `region` 返回 `false`，不抛错。
-- 大小写不敏感比较。
-- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）；这是“平台能力缺失”，与“输入非法”不同。
+#### 3.2.5 当前 locale 的判断方法（`isRegion` / `isLanguage` / `isScript`）
+实例只回答关于**当前 locale** 的问题，方法名不带 `Current` 后缀（与 `getLocale()` 一致）：
 
-#### 3.2.6 `isCurrentRegion(region: string): Promise<boolean>`
-- 等价于 `isRegion(await this.getLocale(), region)`。
+- `isRegion(region: string): Promise<boolean>` — 等价于 `isRegion(await this.getLocale(), region)`（此处的 `isRegion` 指 §5 的独立函数）。
+- `isRegionSync(region: string): boolean` — 同步版本，仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"isRegionSync() requires a synchronous storage adapter"`。
+- `isLanguage(language: string): Promise<boolean>` — 等价于 `isLanguage(await this.getLocale(), language)`。
+- `isLanguageSync(language: string): boolean` — 同步版本，同步适配器要求同上，错误消息为 `"isLanguageSync() requires a synchronous storage adapter"`。
+- `isScript(script: string): Promise<boolean>` — 等价于 `isScript(await this.getLocale(), script)`。
+- `isScriptSync(script: string): boolean` — 同步版本，错误消息为 `"isScriptSync() requires a synchronous storage adapter"`。
 
-#### 3.2.6.1 `isCurrentRegionSync(region: string): boolean`
-- 等价于 `isRegion(this.getLocaleSync(), region)`。
-- 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"isCurrentRegionSync() requires a synchronous storage adapter"`。
+**设计取舍**：实例**不**重复提供针对任意标签的纯判断（`isRegion(locale, region)` 等），也**不**提供 `normalizeLocale`。这类纯函数只在 §5 的 `locale-pref/utils` 子路径导出。理由：
 
-#### 3.2.7 `normalizeLocale(locale: string): string | null`
-- 实现见第 6 节。
-- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
+- 独立函数已能对任意标签做判断，实例上再挂一份是纯重复（实现仅一行委托）。
+- 若在实例上按参数个数重载（`isRegion(locale, region)` 与 `isRegion(region)`），`pref.isRegion('zh-CN')` 会被解析为“当前 locale 的 region 是否为 `zh-CN`”，把整标签误当参数，且返回类型随参数个数在 `boolean`/`Promise<boolean>` 间切换，易误用。
+- 心智模型更清晰：**实例 = 关于“当前 locale”的问题；`locale-pref/utils` = 关于“任意标签”的问题**。
 
-#### 3.2.8 `storage`
+#### 3.2.6 `storage`
 - 只读属性，返回创建实例时使用的适配器。
 
 ### 3.3 存储适配器接口
@@ -188,7 +189,7 @@ interface StorageSetOptions {
 #### 3.3.1 同步与异步的判定
 
 - 适配器 **`isSync === true`** → 同步适配器；否则为异步适配器（无论方法实际是否返回 Promise）。
-- 异步适配器在 `getLocale` / `setLocale` / `clearLocale` / `isCurrentRegion` 中一律 `await`，语义与同步适配器一致。
+- 异步适配器在 `getLocale` / `setLocale` / `clearLocale` / `isRegion` 中一律 `await`，语义与同步适配器一致。
 - 异步适配器调用 `getLocaleSync()` 抛 `Error`，消息为 `"getLocaleSync() requires a synchronous storage adapter"`。
 - 误把异步适配器标记为 `isSync: true` 时，`getLocaleSync()` 会把 `Promise` 当作 `string` 处理，`resolveCandidate` 因 `typeof value !== 'string'` 判为未命中，从而静默走回退链。文档需提示该陷阱。
 
@@ -197,7 +198,7 @@ interface StorageSetOptions {
 - `storage.get` 抛错或 reject → 以 `context: 'storage'` 调用 `onError`，随后继续回退链（与同步抛错一致，**不**向上抛）。
 - `storage.set` / `storage.remove` 抛错或 reject → 让 `setLocale` / `clearLocale` 返回的 Promise **reject**，由调用方处理。库不吞错，也不重试。
 
-#### 3.3.3 为何提供同步方法（`setLocaleSync` / `clearLocaleSync` / `isCurrentRegionSync`）
+#### 3.3.3 为何提供同步方法（`setLocaleSync` / `clearLocaleSync` / `isRegionSync`）
 
 内置适配器多数是同步的，因此提供同步变体，让整条同步流程保持同步。**不**提供「返回 Promise 但没有对应同步方法」的方案，原因：
 
@@ -283,6 +284,8 @@ function memoryAdapter(initial?: Record<string, string>): StorageAdapter;
 
 ```typescript
 function isRegion(locale: string, region: string): boolean;
+function isLanguage(locale: string, language: string): boolean;
+function isScript(locale: string, script: string): boolean;
 function normalizeLocale(locale: string): string | null;
 function detectNavigatorLocale(): string | null;
 ```
@@ -313,6 +316,40 @@ function isRegion(locale: string, region: string): boolean {
 - 无 `region` 子标签（如 `en`）→ 返回 `false`。
 - 不抛错。
 
+### 6.1.1 `isLanguage`
+```typescript
+function isLanguage(locale: string, language: string): boolean {
+  if (typeof locale !== 'string' || typeof language !== 'string') return false;
+  try {
+    return new Intl.Locale(locale).language?.toLowerCase() === language.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+```
+- 比较 `Intl.Locale.prototype.language`（主语言子标签），忽略 `region`、`script` 与扩展。
+- `language` 应为裸语言子标签（如 `'zh'`、`'en'`），不是完整标签。
+- `und`、空串或非法标签 → `language` 为 `undefined` 或解析失败 → 返回 `false`。
+- 不抛错。
+
+### 6.1.2 `isScript`
+```typescript
+function isScript(locale: string, script: string): boolean {
+  if (typeof locale !== 'string' || typeof script !== 'string') return false;
+  try {
+    return new Intl.Locale(locale).maximize().script?.toLowerCase() === script.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+```
+- 先 `maximize()` 补全 likely subtags，再比较 `script`（书写系统子标签）。
+- `script` 应为四字母书写系统代码（如 `'Hans'`、`'Hant'`、`'Latn'`、`'Cyrl'`）。
+- 关键：`zh-CN` 无显式 script，但 `maximize()` 按 CLDR likely subtags 得到 `Hans`；`zh-TW` 得到 `Hant`。若不 maximize，`zh-CN`/`zh-TW` 会因 `script === undefined` 而全部判 `false`。
+- 简体/繁体是 **script**，不是语言子级：`zh-Hans` 与 `zh-Hant` 的 `language` 都是 `zh`。
+- 空串、非法标签 → 返回 `false`。
+- 不抛错。
+
 ### 6.2 `normalizeLocale`
 ```typescript
 function normalizeLocale(locale: string): string | null {
@@ -331,6 +368,11 @@ function normalizeLocale(locale: string): string | null {
 - `isRegion` 判断的是**语言标签本身是否携带该地区子标签**。
 - 它**不用于推断用户物理位置**，也不等同于 `Accept-Language` 的地区含义。
 - `en`、`zh` 这类无地区子标签的标签，对任何 `region` 都返回 `false`。
+- `isLanguage` 判断的是**语言标签本身的主语言子标签**，忽略地区与书写系统：`zh-Hant-TW` 与 `zh-Hans-CN` 都属于 `zh`。
+- 它同样**不用于推断用户**，只回答“这个标签是不是该语言”。
+- `isScript` 判断的是**标签解析出的书写系统子标签**。简体/繁体是 `Hans`/`Hant` 两个**书写系统**，二者语言都是 `zh`，属平级子标签而非语言子级。
+- `isScript` 会先 `maximize()`，所以只有地区的标签也能区分：`zh-CN`/`zh-SG` 视为简体，`zh-TW`/`zh-HK`/`zh-MO` 视为繁体。这是 CLDR likely subtags 推断，不是标签里显式写出的 script。
+- 组合用法：先 `isLanguage('zh')` 判定是中文，再用 `isScript('Hans')` / `isScript('Hant')` 细分简繁。
 
 ### 6.4 平台能力要求（`Intl.Locale`）
 - `isRegion` 与 `normalizeLocale` 依赖 `Intl.Locale`。该 API 的浏览器支持下限为
@@ -342,7 +384,7 @@ function normalizeLocale(locale: string): string | null {
   - 非法输入（非字符串、畸形标签）仍按 §3.2.5 返回 `false` / `null`，不抛错；
     “平台能力缺失”与“输入非法”是两回事，前者抛错、后者不抛。
 - `normalize: false` 是逃生口：`getLocale` / `setLocale` 可在无 `Intl.Locale` 时工作，
-  但 `isRegion` / `isCurrentRegion` 仍依赖它。
+  但 `isRegion` / `isLanguage` / `isScript` 及其 `*Sync` 变体仍依赖它。
 - `globalThis`（Chrome 71 / Firefox 65 / Safari 12.1）通过 `globalThis` → `self` →
   `window` 回退链解析，其缺失不致命。
 
@@ -363,7 +405,7 @@ locale-pref/
 │   │   ├── sessionStorage.ts
 │   │   ├── webStorage.ts      # localStorage/sessionStorage 共用的 Storage 适配
 │   │   └── memory.ts
-│   ├── utils.ts          # isRegion / normalizeLocale / detectNavigatorLocale
+│   ├── utils.ts          # isRegion / isLanguage / isScript / normalizeLocale / detectNavigatorLocale
 │   └── types.ts
 ├── test/
 │   ├── utils.test.ts
@@ -447,10 +489,10 @@ locale-pref/
 - `normalize: false` 时非法标签原样写入（需测试此路径）。
 
 ### 8.4.1 同步方法（`sync-writes`）
-- `setLocaleSync` / `clearLocaleSync` / `isCurrentRegionSync` 返回 `void` / `boolean`，且立即生效。
+- `setLocaleSync` / `clearLocaleSync` / `isRegionSync`（及 `isLanguageSync` / `isScriptSync`）返回 `void` / `boolean`，且立即生效。
 - 与异步版本同校验（`RangeError`）、同写入（`storageSetOptions` 透传）。
 - 同步适配器 `set` / `remove` 抛错 → 同步方法直接 `throw`。
-- 非同步适配器 → 抛 `Error`，消息含对应方法名（`setLocaleSync()` / `clearLocaleSync()` / `isCurrentRegionSync()`）。
+- 非同步适配器 → 抛 `Error`，消息含对应方法名（`setLocaleSync()` / `clearLocaleSync()` / `isRegionSync()` 等）。
 - 整条同步流程不产生任何 `Promise`。
 
 ### 8.5 `cookieAdapter`
@@ -475,7 +517,7 @@ locale-pref/
 - 全异步适配器（无 `isSync`）：`getLocale` 解析出存储值。
 - `setLocale` 等待写入完成，后续 `getLocale` 能读到新值。
 - `clearLocale` 等待删除完成。
-- `isCurrentRegion` 基于异步 `getLocale` 正确判断。
+- `isRegion` 基于异步 `getLocale` 正确判断。
 - `storage.get` reject → 以 `'storage'` 调用 `onError` 并继续回退。
 - `storage.set` / `storage.remove` reject → `setLocale` / `clearLocale` 的 Promise reject。
 - 无 `isSync` 的适配器调用 `getLocaleSync()` → 抛错。
@@ -494,7 +536,7 @@ locale-pref/
 1. 安装与基本用法。**同步 API 优先**：开头与快速开始先用 `getLocaleSync()` / `setLocaleSync()`（内置适配器均为同步），再单列一节介绍异步后端（`await` 用法）。顺序为 Cookie / localStorage / 异步后端 / SSR 四个示例。
 2. API 参考（本文档第 3 节精简版）。实例方法按「同步在前、异步在后」排列，并各自标注可用条件。
 3. **`isRegion` 语义说明**（第 6.3 节内容，必须显式写出“不用于推断用户位置”）。
-4. `getLocaleSync` / `setLocaleSync` / `clearLocaleSync` / `isCurrentRegionSync` 的限制说明（仅同步适配器，及为何提供同步方法）。
+4. `getLocaleSync` / `setLocaleSync` / `clearLocaleSync` / `isRegionSync` 的限制说明（仅同步适配器，及为何提供同步方法）。
 5. `cookieAdapter` 在 Node 环境只读的说明。
 6. 自定义适配器示例（含**异步适配器**的完整语义：何时 `await`、`get` reject 不抛/`set`·`remove` reject 传播、`*Sync` 方法抛错，以及误标 `isSync` 的陷阱）。
 7. 浏览器兼容性说明（依赖 `Intl.Locale`，列出精确版本下限、polyfill 名称与引入方式、缺失时的抛错行为，见 §6.4）。
@@ -528,7 +570,7 @@ locale-pref/
 3. `createLocalePref` 的 `getLocale` / `setLocale` / `clearLocale` + 单测。
 4. `cookieAdapter`（浏览器 + Node 双路径）+ 单测。
 5. `localStorageAdapter` + 单测。
-6. `getLocaleSync` 与 `isCurrentRegion`。
+6. `getLocaleSync` 与 `isRegion`。
 7. 构建配置、`exports`、README。
 8. 覆盖率补全与验收清单核对。
 

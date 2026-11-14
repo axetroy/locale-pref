@@ -1,5 +1,5 @@
 import { cookieAdapter } from './adapters/cookie.js';
-import { detectNavigatorLocale, isRegion as isRegionTag, normalizeLocale } from './utils.js';
+import { detectNavigatorLocale, isLanguage, isRegion, isScript, normalizeLocale } from './utils.js';
 import type { LocalePref, LocalePrefOptions, StorageAdapter } from './types.js';
 
 const DEFAULT_STORAGE_KEY = 'user_locale';
@@ -164,19 +164,31 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
       return storage;
     },
 
-    normalizeLocale,
-
-    isRegion(locale: string, region: string): boolean {
-      return isRegionTag(locale, region);
+    async isRegion(region: string): Promise<boolean> {
+      return isRegion(await getLocale(), region);
     },
 
-    async isCurrentRegion(region: string): Promise<boolean> {
-      return isRegionTag(await getLocale(), region);
+    isRegionSync(region: string): boolean {
+      assertSyncAdapter('isRegionSync');
+      return isRegion(resolveLocaleSync(), region);
     },
 
-    isCurrentRegionSync(region: string): boolean {
-      assertSyncAdapter('isCurrentRegionSync');
-      return isRegionTag(resolveLocaleSync(), region);
+    async isLanguage(language: string): Promise<boolean> {
+      return isLanguage(await getLocale(), language);
+    },
+
+    isLanguageSync(language: string): boolean {
+      assertSyncAdapter('isLanguageSync');
+      return isLanguage(resolveLocaleSync(), language);
+    },
+
+    async isScript(script: string): Promise<boolean> {
+      return isScript(await getLocale(), script);
+    },
+
+    isScriptSync(script: string): boolean {
+      assertSyncAdapter('isScriptSync');
+      return isScript(resolveLocaleSync(), script);
     },
 
     getLocale,

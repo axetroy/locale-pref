@@ -121,11 +121,11 @@ describe('clearLocaleSync', () => {
   });
 });
 
-describe('isCurrentRegionSync', () => {
+describe('isRegionSync', () => {
   it('judges the stored region synchronously', () => {
     const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
-    expect(pref.isCurrentRegionSync('CN')).toBe(true);
-    expect(pref.isCurrentRegionSync('US')).toBe(false);
+    expect(pref.isRegionSync('CN')).toBe(true);
+    expect(pref.isRegionSync('US')).toBe(false);
   });
 
   it('requires a synchronous adapter', () => {
@@ -134,8 +134,46 @@ describe('isCurrentRegionSync', () => {
       set: async () => undefined,
       remove: async () => undefined,
     };
-    expect(() => createLocalePref({ storage }).isCurrentRegionSync('CN')).toThrow(
-      'isCurrentRegionSync() requires a synchronous storage adapter',
+    expect(() => createLocalePref({ storage }).isRegionSync('CN')).toThrow(
+      'isRegionSync() requires a synchronous storage adapter',
+    );
+  });
+});
+
+describe('isLanguageSync', () => {
+  it('judges the stored language synchronously', () => {
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
+    expect(pref.isLanguageSync('zh')).toBe(true);
+    expect(pref.isLanguageSync('en')).toBe(false);
+  });
+
+  it('requires a synchronous adapter', () => {
+    const storage: StorageAdapter = {
+      get: async () => null,
+      set: async () => undefined,
+      remove: async () => undefined,
+    };
+    expect(() => createLocalePref({ storage }).isLanguageSync('zh')).toThrow(
+      'isLanguageSync() requires a synchronous storage adapter',
+    );
+  });
+});
+
+describe('isScriptSync', () => {
+  it('judges the stored script synchronously', () => {
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-TW' }) });
+    expect(pref.isScriptSync('Hant')).toBe(true);
+    expect(pref.isScriptSync('Hans')).toBe(false);
+  });
+
+  it('requires a synchronous adapter', () => {
+    const storage: StorageAdapter = {
+      get: async () => null,
+      set: async () => undefined,
+      remove: async () => undefined,
+    };
+    expect(() => createLocalePref({ storage }).isScriptSync('Hans')).toThrow(
+      'isScriptSync() requires a synchronous storage adapter',
     );
   });
 });

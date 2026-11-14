@@ -10,8 +10,9 @@ Zero-dependency locale preference toolkit for JavaScript and TypeScript.
    with a configurable fallback chain.
 2. **Remember the user's choice.** Persist a language tag to a cookie,
    `localStorage`, or your own backend.
-3. **Is this language tag for a given region?** Match the region subtag of a BCP 47
-   tag with `Intl.Locale`.
+3. **What does this language tag refer to?** Match the region (`isRegion`), the
+   primary language (`isLanguage`), or the script — Simplified vs Traditional
+   Chinese — (`isScript`) of a BCP 47 tag with `Intl.Locale`.
 
 It is pure ESM, has no runtime dependencies, and works in browsers and Node.js
 (including SSR).
@@ -189,20 +190,26 @@ interface LocalePref {
   getLocaleSync(): string;
   setLocaleSync(locale: string): void;
   clearLocaleSync(): void;
-  isCurrentRegionSync(region: string): boolean;
+  isRegionSync(region: string): boolean;
+  isLanguageSync(language: string): boolean;
+  isScriptSync(script: string): boolean;
 
   // Asynchronous — for a promise-returning adapter, or one code path for both.
   getLocale(): Promise<string>;
   setLocale(locale: string): Promise<void>;
   clearLocale(): Promise<void>;
-  isCurrentRegion(region: string): Promise<boolean>;
+  isRegion(region: string): Promise<boolean>;
+  isLanguage(language: string): Promise<boolean>;
+  isScript(script: string): Promise<boolean>;
 
-  // Independent of the adapter.
-  isRegion(locale: string, region: string): boolean;
-  normalizeLocale(locale: string): string | null;
   readonly storage: StorageAdapter;
 }
 ```
+
+The instance answers questions about the **current** locale. To test an
+arbitrary tag, import the pure predicates from
+[`locale-pref/utils`](#utilities) instead — see
+[why the two are separate](#instance-versus-utilities).
 
 #### `getLocaleSync(): string`
 
@@ -239,14 +246,24 @@ again. Calls `storage.remove(storageKey, storageSetOptions)`: the write options
 entries by attribute deletes the right one. Only usable with a synchronous
 adapter.
 
-#### `isCurrentRegionSync(region: string): boolean`
+#### `isRegionSync(region: string): boolean`
 
-Equivalent to `isRegion(getLocaleSync(), region)`. Only usable with a synchronous
-adapter.
+Equivalent to `isRegion(getLocaleSync(), region)` (the utility `isRegion`). Only
+usable with a synchronous adapter.
+
+#### `isLanguageSync(language: string): boolean`
+
+Equivalent to `isLanguage(getLocaleSync(), language)`. Only usable with a
+synchronous adapter.
+
+#### `isScriptSync(script: string): boolean`
+
+Equivalent to `isScript(getLocaleSync(), script)`. Only usable with a
+synchronous adapter.
 
 #### Asynchronous methods
 
-The following four methods return a `Promise`. Use them with an adapter whose
+The following methods return a `Promise`. Use them with an adapter whose
 methods return promises (an adapter that omits `isSync`, or sets it to `false`),
 or when you want a single code path for both kinds of adapter.
 
@@ -264,25 +281,47 @@ throwing.
 
 The asynchronous twin of `clearLocaleSync`.
 
-#### `isCurrentRegion(region: string): Promise<boolean>`
+#### `isRegion(region: string): Promise<boolean>`
 
-Equivalent to `isRegion(await getLocale(), region)`.
+Equivalent to `isRegion(await getLocale(), region)` (the utility `isRegion`).
 
-#### `isRegion(locale: string, region: string): boolean`
+#### `isLanguage(language: string): Promise<boolean>`
 
-Returns whether the language tag carries the given region subtag. Never throws:
-invalid input returns `false`. Comparison is case-insensitive. This method is
-synchronous for both kinds of adapter. See
-[`isRegion` semantics](#isregion-semantics).
+Equivalent to `isLanguage(await getLocale(), language)`.
 
-#### `normalizeLocale(locale: string): string | null`
+#### `isScript(script: string): Promise<boolean>`
 
-Canonicalizes a tag (see [utilities](#utilities)). Returns `null` for invalid
-input.
+Equivalent to `isScript(await getLocale(), script)`.
 
 #### `storage`
 
 The read-only adapter the instance was created with.
+
+#### Instance versus utilities
+
+The instance only judges the **current** locale, so its predicates take one
+argument (`isRegion(region)`) and never repeat the `locale` parameter. Testing an
+arbitrary tag is the job of the pure functions exported from
+`locale-pref/utils`, which the instance methods delegate to:
+
+```ts
+import { createLocalePref } from 'locale-pref';
+import { isRegion } from 'locale-pref/utils';
+
+const pref = createLocalePref();
+
+// About the current locale (reads storage):
+await pref.isRegion('CN');
+
+// About any tag you already have (pure, no storage):
+isRegion('zh-Hans-CN', 'CN');
+```
+
+The two are kept apart so there is exactly one way to ask each question. The
+instance does not carry a second, overloaded `isRegion(locale, region)` form:
+overloading on argument count would make `pref.isRegion('zh-CN')` silently mean
+"is the _current_ locale's region `zh-CN`?" and switch the return type between
+`boolean` and `Promise<boolean>` based on how many arguments you pass.
 
 ### Utilities
 
@@ -290,13 +329,15 @@ These are also exported from the `locale-pref/utils` subpath and can be imported
 without pulling in the factory, which keeps bundles small:
 
 ```ts
-import { detectNavigatorLocale, isRegion, normalizeLocale } from 'locale-pref/utils';
+import { detectNavigatorLocale, isLanguage, isRegion, isScript, normalizeLocale } from 'locale-pref/utils';
 ```
 
 - **`normalizeLocale(locale)`** — returns the canonical BCP 47 tag via
   `Intl.Locale.prototype.toString()` (`'zh-hans-cn'` → `'zh-Hans-CN'`), or `null`
   for empty, whitespace-only, or malformed input.
 - **`isRegion(locale, region)`** — see [below](#isregion-semantics).
+- **`isLanguage(locale, language)`** — see [below](#islanguage-semantics).
+- **`isScript(locale, script)`** — see [below](#isscript-semantics).
 - **`detectNavigatorLocale()`** — returns the first valid entry of
   `navigator.languages`, or `null` when `navigator` is absent, `languages` is not
   a non-empty array, or no entry is valid. It deliberately does not read
@@ -312,7 +353,7 @@ currency, or time zone decisions.
 Tags without a region subtag return `false` for every region:
 
 ```ts
-import { isRegion } from 'locale-pref';
+import { isRegion } from 'locale-pref/utils';
 
 isRegion('zh-CN', 'CN'); // true
 isRegion('zh-Hans-CN', 'CN'); // true
@@ -322,10 +363,60 @@ isRegion('en-US', 'us'); // true — case-insensitive
 isRegion('not a tag!!', 'CN'); // false — never throws
 ```
 
+### `isLanguage` semantics
+
+`isLanguage` tests whether the **language tag itself carries the given primary
+language subtag**, the language-level counterpart of `isRegion`. It ignores the
+region and script, so every Chinese variant matches `'zh'`. Like `isRegion` it
+inspects the tag only; it does not infer anything about the user. Pass a bare
+language subtag (`'zh'`, `'en'`), not a full tag.
+
+```ts
+import { isLanguage } from 'locale-pref/utils';
+
+isLanguage('zh-Hans-CN', 'zh'); // true
+isLanguage('zh-Hant-TW', 'zh'); // true — script and region ignored
+isLanguage('en-US', 'zh'); // false
+isLanguage('zh-CN', 'ZH'); // true — case-insensitive
+isLanguage('not a tag!!', 'zh'); // false — never throws
+```
+
+### `isScript` semantics
+
+Simplified and Traditional Chinese are the same language (`zh`) with two
+different **scripts**: `Hans` (Simplified) and `Hant` (Traditional). `isScript`
+tests the script subtag, the third in the `language-script-region` chain.
+
+It calls `Intl.Locale.prototype.maximize()` first, so a tag that names only a
+region still resolves through CLDR "likely subtags":
+
+```ts
+import { isScript } from 'locale-pref/utils';
+
+isScript('zh-Hans-CN', 'Hans'); // true
+isScript('zh-Hant-TW', 'Hant'); // true
+isScript('zh-CN', 'Hans'); // true — likely script of zh-CN
+isScript('zh-TW', 'Hant'); // true — likely script of zh-TW
+isScript('zh-TW', 'Hans'); // false
+isScript('en-US', 'Latn'); // true — English is written in Latin
+isScript('not a tag!!', 'Hans'); // false — never throws
+```
+
+Like the other predicates this inspects the tag only; it does not infer anything
+about the user. `zh-CN → Hans` is a CLDR likely-subtag guess, not something the
+tag states explicitly. To branch on "Chinese, and then which one":
+
+```ts
+if (pref.isLanguage(current, 'zh')) {
+  const simplified = pref.isScript(current, 'Hans');
+}
+```
+
 ### The `*Sync` methods require a synchronous adapter
 
-`getLocaleSync`, `setLocaleSync`, `clearLocaleSync`, and `isCurrentRegionSync`
-only work with an adapter that sets `isSync: true`. The built-in
+`getLocaleSync`, `setLocaleSync`, `clearLocaleSync`, `isRegionSync`,
+`isLanguageSync`, and `isScriptSync` only work with an adapter that sets
+`isSync: true`. The built-in
 `cookieAdapter`, `localStorageAdapter`, `sessionStorageAdapter`, and `memoryAdapter` all do. Calling a
 `*Sync` method with an asynchronous adapter (one without `isSync`) throws:
 
@@ -341,15 +432,17 @@ The message names the method you called. If your adapter can be synchronous, set
 
 Yes — and because several built-in adapters are synchronous, there are
 synchronous twins so a synchronous flow can stay synchronous. `getLocaleSync()`
-reads, `setLocaleSync()` and `clearLocaleSync()` write, and
-`isCurrentRegionSync()` judges the current region:
+reads, `setLocaleSync()` and `clearLocaleSync()` write, and `isRegionSync()`
+judges the current region:
 
 ```ts
 const pref = createLocalePref({ storage: memoryAdapter() });
 
 pref.setLocaleSync('zh-CN'); // returns void, throws on failure
 pref.getLocaleSync(); // 'zh-CN'
-pref.isCurrentRegionSync('CN'); // true
+pref.isRegionSync('CN'); // true
+pref.isLanguageSync('zh'); // true
+pref.isScriptSync('Hans'); // true
 pref.clearLocaleSync();
 ```
 
@@ -466,23 +559,23 @@ const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
 
 For a synchronous backend (for example a cookie in a server framework), add
 `isSync: true` to enable the `*Sync` methods (`getLocaleSync`, `setLocaleSync`,
-`clearLocaleSync`, `isCurrentRegionSync`).
+`clearLocaleSync`, `isRegionSync`).
 
 ### How asynchronous adapters are handled
 
 Async is a first-class case, not an afterthought. An adapter is asynchronous when
 it omits `isSync` (or sets it to `false`) and its methods return promises.
 
-| Call                    | Behavior with an async adapter                                                    |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `getLocale()`           | Awaits `storage.get`.                                                             |
-| `setLocale()`           | Awaits `storage.set` before resolving.                                            |
-| `clearLocale()`         | Awaits `storage.remove` before resolving.                                         |
-| `isCurrentRegion()`     | Awaits the underlying `getLocale()`.                                              |
-| `getLocaleSync()`       | **Throws** `Error: getLocaleSync() requires a synchronous storage adapter`.       |
-| `setLocaleSync()`       | **Throws** `Error: setLocaleSync() requires a synchronous storage adapter`.       |
-| `clearLocaleSync()`     | **Throws** `Error: clearLocaleSync() requires a synchronous storage adapter`.     |
-| `isCurrentRegionSync()` | **Throws** `Error: isCurrentRegionSync() requires a synchronous storage adapter`. |
+| Call                | Behavior with an async adapter                                                |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `getLocale()`       | Awaits `storage.get`.                                                         |
+| `setLocale()`       | Awaits `storage.set` before resolving.                                        |
+| `clearLocale()`     | Awaits `storage.remove` before resolving.                                     |
+| `isRegion()`        | Awaits the underlying `getLocale()`.                                          |
+| `getLocaleSync()`   | **Throws** `Error: getLocaleSync() requires a synchronous storage adapter`.   |
+| `setLocaleSync()`   | **Throws** `Error: setLocaleSync() requires a synchronous storage adapter`.   |
+| `clearLocaleSync()` | **Throws** `Error: clearLocaleSync() requires a synchronous storage adapter`. |
+| `isRegionSync()`    | **Throws** `Error: isRegionSync() requires a synchronous storage adapter`.    |
 
 Four rules to rely on:
 
@@ -589,18 +682,18 @@ you meant to detect. The error message names the fix.
 
 Affected entry points, with the default `normalize: true`:
 
-| Call                                   | Without `Intl.Locale`    |
-| -------------------------------------- | ------------------------ |
-| `normalizeLocale()`                    | throws                   |
-| `isRegion()` / `isCurrentRegionSync()` | throws                   |
-| `getLocale()` / `getLocaleSync()`      | throws (normalizes tags) |
-| `setLocale()`                          | rejects (normalizes tag) |
-| `setLocaleSync()`                      | throws (normalizes tag)  |
-| `clearLocale()` / `clearLocaleSync()`  | work                     |
+| Call                                  | Without `Intl.Locale`    |
+| ------------------------------------- | ------------------------ |
+| `normalizeLocale()`                   | throws                   |
+| `isRegion()` / `isRegionSync()`       | throws                   |
+| `getLocale()` / `getLocaleSync()`     | throws (normalizes tags) |
+| `setLocale()`                         | rejects (normalizes tag) |
+| `setLocaleSync()`                     | throws (normalizes tag)  |
+| `clearLocale()` / `clearLocaleSync()` | work                     |
 
 The one escape hatch is `normalize: false`. The get/set methods then work without
 `Intl.Locale` (they skip validation and canonicalization), but `isRegion()` /
-`isCurrentRegion()` / `isCurrentRegionSync()` still require it.
+`isLanguage()` / `isScript()` and their `*Sync` twins still require it.
 
 ## Development
 

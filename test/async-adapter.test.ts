@@ -47,9 +47,19 @@ describe('asynchronous adapters', () => {
     await expect(pref.getLocale()).resolves.toBe('en');
   });
 
-  it('resolves isCurrentRegion against the async-backed locale', async () => {
+  it('resolves isRegion against the async-backed locale', async () => {
     const { adapter } = asyncAdapter({ user_locale: 'ja-JP' });
-    await expect(createLocalePref({ storage: adapter }).isCurrentRegion('jp')).resolves.toBe(true);
+    await expect(createLocalePref({ storage: adapter }).isRegion('jp')).resolves.toBe(true);
+  });
+
+  it('resolves isLanguage against the async-backed locale', async () => {
+    const { adapter } = asyncAdapter({ user_locale: 'ja-JP' });
+    await expect(createLocalePref({ storage: adapter }).isLanguage('ja')).resolves.toBe(true);
+  });
+
+  it('resolves isScript against the async-backed locale', async () => {
+    const { adapter } = asyncAdapter({ user_locale: 'zh-TW' });
+    await expect(createLocalePref({ storage: adapter }).isScript('Hant')).resolves.toBe(true);
   });
 
   it('reports a rejected get through onError and falls back', async () => {

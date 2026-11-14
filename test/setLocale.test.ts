@@ -131,23 +131,25 @@ describe('instance surface', () => {
     expect(pref.storage.isSync).toBe(true);
   });
 
-  it('delegates normalizeLocale to the utility', () => {
-    expect(createLocalePref().normalizeLocale('zh-hans-cn')).toBe('zh-Hans-CN');
-    expect(createLocalePref().normalizeLocale('!!')).toBe(null);
-  });
-
-  it('delegates isRegion to the utility', () => {
-    const pref = createLocalePref();
-    expect(pref.isRegion('zh-CN', 'cn')).toBe(true);
-    expect(pref.isRegion('zh', 'CN')).toBe(false);
-    expect(pref.isRegion('invalid_tag!!', 'CN')).toBe(false);
-  });
-
-  it('reports isCurrentRegion for the resolved locale', async () => {
+  it('reports isRegion for the resolved locale', async () => {
     stubNavigator(['en-US']);
     const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
-    await expect(pref.isCurrentRegion('CN')).resolves.toBe(true);
-    await expect(pref.isCurrentRegion('US')).resolves.toBe(false);
+    await expect(pref.isRegion('CN')).resolves.toBe(true);
+    await expect(pref.isRegion('US')).resolves.toBe(false);
+  });
+
+  it('reports isLanguage for the resolved locale', async () => {
+    stubNavigator(['en-US']);
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
+    await expect(pref.isLanguage('zh')).resolves.toBe(true);
+    await expect(pref.isLanguage('en')).resolves.toBe(false);
+  });
+
+  it('reports isScript for the resolved locale', async () => {
+    stubNavigator(['en-US']);
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-TW' }) });
+    await expect(pref.isScript('Hant')).resolves.toBe(true);
+    await expect(pref.isScript('Hans')).resolves.toBe(false);
   });
 });
 
