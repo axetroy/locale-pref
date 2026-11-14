@@ -151,12 +151,26 @@ interface LocalePref {
 - 大小写不敏感比较。
 - 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）；这是“平台能力缺失”，与“输入非法”不同。
 
+#### 3.2.5.1 `isLanguage(locale: string, language: string): boolean`
+- 实现见第 6 节。
+- 判断标签的主语言子标签是否等于 `language`（忽略地区、书写系统与扩展子标签）。
+- 非法 `locale` 或 `language` 返回 `false`，不抛错。
+- 大小写不敏感比较。
+- 运行时缺失 `Intl.Locale` 时抛错（见 §6.4）。
+
 #### 3.2.6 `isCurrentRegion(region: string): Promise<boolean>`
 - 等价于 `isRegion(await this.getLocale(), region)`。
 
 #### 3.2.6.1 `isCurrentRegionSync(region: string): boolean`
 - 等价于 `isRegion(this.getLocaleSync(), region)`。
 - 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"isCurrentRegionSync() requires a synchronous storage adapter"`。
+
+#### 3.2.6.2 `isCurrentLanguage(language: string): Promise<boolean>`
+- 等价于 `isLanguage(await this.getLocale(), language)`。
+
+#### 3.2.6.3 `isCurrentLanguageSync(language: string): boolean`
+- 等价于 `isLanguage(this.getLocaleSync(), language)`。
+- 仅当 `storage.isSync === true`；否则抛 `Error`，消息为 `"isCurrentLanguageSync() requires a synchronous storage adapter"`。
 
 #### 3.2.7 `normalizeLocale(locale: string): string | null`
 - 实现见第 6 节。
@@ -283,6 +297,7 @@ function memoryAdapter(initial?: Record<string, string>): StorageAdapter;
 
 ```typescript
 function isRegion(locale: string, region: string): boolean;
+function isLanguage(locale: string, language: string): boolean;
 function normalizeLocale(locale: string): string | null;
 function detectNavigatorLocale(): string | null;
 ```
@@ -313,6 +328,22 @@ function isRegion(locale: string, region: string): boolean {
 - 无 `region` 子标签（如 `en`）→ 返回 `false`。
 - 不抛错。
 
+### 6.1.1 `isLanguage`
+```typescript
+function isLanguage(locale: string, language: string): boolean {
+  if (typeof locale !== 'string' || typeof language !== 'string') return false;
+  try {
+    return new Intl.Locale(locale).language?.toLowerCase() === language.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+```
+- 比较 `Intl.Locale.prototype.language`（主语言子标签），忽略 `region`、`script` 与扩展。
+- `language` 应为裸语言子标签（如 `'zh'`、`'en'`），不是完整标签。
+- `und`、空串或非法标签 → `language` 为 `undefined` 或解析失败 → 返回 `false`。
+- 不抛错。
+
 ### 6.2 `normalizeLocale`
 ```typescript
 function normalizeLocale(locale: string): string | null {
@@ -331,6 +362,8 @@ function normalizeLocale(locale: string): string | null {
 - `isRegion` 判断的是**语言标签本身是否携带该地区子标签**。
 - 它**不用于推断用户物理位置**，也不等同于 `Accept-Language` 的地区含义。
 - `en`、`zh` 这类无地区子标签的标签，对任何 `region` 都返回 `false`。
+- `isLanguage` 判断的是**语言标签本身的主语言子标签**，忽略地区与书写系统：`zh-Hant-TW` 与 `zh-Hans-CN` 都属于 `zh`。
+- 它同样**不用于推断用户**，只回答“这个标签是不是该语言”。
 
 ### 6.4 平台能力要求（`Intl.Locale`）
 - `isRegion` 与 `normalizeLocale` 依赖 `Intl.Locale`。该 API 的浏览器支持下限为

@@ -8,7 +8,7 @@
 
 1. **用户想要什么语言？** 从可插拔的存储后端读取，并按可配置的回退链依次尝试。
 2. **记住用户的选择。** 将语言标签持久化到 cookie、`localStorage` 或自定义后端。
-3. **这个标签属于某个地区吗？** 使用 `Intl.Locale` 匹配 BCP 47 标签中的地区子标签。
+3. **这个标签指的是什么？** 使用 `Intl.Locale` 匹配 BCP 47 标签中的地区子标签（`isRegion`）或主语言子标签（`isLanguage`）。
 
 它是纯 ESM、零运行时依赖，同时支持浏览器与 Node.js（含 SSR）。
 
@@ -156,15 +156,18 @@ interface LocalePref {
   setLocaleSync(locale: string): void;
   clearLocaleSync(): void;
   isCurrentRegionSync(region: string): boolean;
+  isCurrentLanguageSync(language: string): boolean;
 
   // 异步 —— 用于返回 Promise 的适配器，或想让两种适配器共用同一条代码路径。
   getLocale(): Promise<string>;
   setLocale(locale: string): Promise<void>;
   clearLocale(): Promise<void>;
   isCurrentRegion(region: string): Promise<boolean>;
+  isCurrentLanguage(language: string): Promise<boolean>;
 
   // 与适配器类型无关。
   isRegion(locale: string, region: string): boolean;
+  isLanguage(locale: string, language: string): boolean;
   normalizeLocale(locale: string): string | null;
   readonly storage: StorageAdapter;
 }
@@ -197,9 +200,13 @@ interface LocalePref {
 
 等价于 `isRegion(getLocaleSync(), region)`。仅可用于同步适配器。
 
+#### `isCurrentLanguageSync(language: string): boolean`
+
+等价于 `isLanguage(getLocaleSync(), language)`。仅可用于同步适配器。
+
 #### 异步方法
 
-下面四个方法返回 `Promise`。当适配器的方法返回 Promise 时（未设置 `isSync`，或设为 `false`），或希望两种适配器共用同一条代码路径时使用它们。
+下面这些方法返回 `Promise`。当适配器的方法返回 Promise 时（未设置 `isSync`，或设为 `false`），或希望两种适配器共用同一条代码路径时使用它们。
 
 #### `getLocale(): Promise<string>`
 
@@ -217,9 +224,17 @@ interface LocalePref {
 
 等价于 `isRegion(await getLocale(), region)`。
 
+#### `isCurrentLanguage(language: string): Promise<boolean>`
+
+等价于 `isLanguage(await getLocale(), language)`。
+
 #### `isRegion(locale: string, region: string): boolean`
 
 返回语言标签是否携带指定的地区子标签。永不抛错：非法输入返回 `false`。比较不区分大小写。该方法对两种适配器都是同步的。参见 [`isRegion` 语义](#isregion-语义)。
+
+#### `isLanguage(locale: string, language: string): boolean`
+
+返回标签的主语言子标签是否等于 `language`（裸子标签，如 `'zh'`、`'en'`），忽略地区与书写系统。永不抛错：非法输入返回 `false`。比较不区分大小写。对两种适配器都是同步的。参见 [`isLanguage` 语义](#islanguage-语义)。
 
 #### `normalizeLocale(locale: string): string | null`
 
@@ -234,12 +249,13 @@ interface LocalePref {
 这些函数同样从 `locale-pref/utils` 子路径导出，可以单独导入而不引入工厂函数，从而保持包体积精简：
 
 ```ts
-import { detectNavigatorLocale, isRegion, normalizeLocale } from 'locale-pref/utils';
+import { detectNavigatorLocale, isLanguage, isRegion, normalizeLocale } from 'locale-pref/utils';
 ```
 
 - **`normalizeLocale(locale)`** — 通过 `Intl.Locale.prototype.toString()` 返回规范的 BCP 47 标签
   （`'zh-hans-cn'` → `'zh-Hans-CN'`），空串、纯空白或非法输入返回 `null`。
 - **`isRegion(locale, region)`** — 见[下文](#isregion-语义)。
+- **`isLanguage(locale, language)`** — 见[下文](#islanguage-语义)。
 - **`detectNavigatorLocale()`** — 返回 `navigator.languages` 中第一个合法项，当 `navigator` 不存在、`languages` 不是非空数组、或没有合法项时返回 `null`。它刻意不读取
   `navigator.language`，后者是 `navigator.languages[0]` 的历史别名。
 
@@ -260,9 +276,23 @@ isRegion('en-US', 'us'); // true —— 不区分大小写
 isRegion('not a tag!!', 'CN'); // false —— 永不抛错
 ```
 
+### `isLanguage` 语义
+
+`isLanguage` 判断的是**语言标签本身的主语言子标签**，是 `isRegion` 在语言层面的对应物。它忽略地区与书写系统，因此所有中文变体都匹配 `'zh'`。与 `isRegion` 一样，它只看标签本身，不推断任何关于用户的信息。第二个参数应是裸语言子标签（`'zh'`、`'en'`），而非完整标签。
+
+```ts
+import { isLanguage } from 'locale-pref';
+
+isLanguage('zh-Hans-CN', 'zh'); // true
+isLanguage('zh-Hant-TW', 'zh'); // true —— 忽略书写系统与地区
+isLanguage('en-US', 'zh'); // false
+isLanguage('zh-CN', 'ZH'); // true —— 不区分大小写
+isLanguage('not a tag!!', 'zh'); // false —— 永不抛错
+```
+
 ### `*Sync` 方法需要同步适配器
 
-`getLocaleSync`、`setLocaleSync`、`clearLocaleSync`、`isCurrentRegionSync` 只能用于设置了 `isSync: true` 的适配器。内置的 `cookieAdapter`、`localStorageAdapter`、`sessionStorageAdapter` 和 `memoryAdapter` 都满足该条件。对异步适配器（未设置 `isSync`）调用 `*Sync` 方法会抛出：
+`getLocaleSync`、`setLocaleSync`、`clearLocaleSync`、`isCurrentRegionSync`、`isCurrentLanguageSync` 只能用于设置了 `isSync: true` 的适配器。内置的 `cookieAdapter`、`localStorageAdapter`、`sessionStorageAdapter` 和 `memoryAdapter` 都满足该条件。对异步适配器（未设置 `isSync`）调用 `*Sync` 方法会抛出：
 
 ```
 Error: getLocaleSync() requires a synchronous storage adapter
@@ -281,6 +311,7 @@ const pref = createLocalePref({ storage: memoryAdapter() });
 pref.setLocaleSync('zh-CN'); // 返回 void，失败时抛错
 pref.getLocaleSync(); // 'zh-CN'
 pref.isCurrentRegionSync('CN'); // true
+pref.isCurrentLanguageSync('zh'); // true
 pref.clearLocaleSync();
 ```
 
@@ -369,22 +400,24 @@ const redisAdapter: StorageAdapter = {
 const pref = createLocalePref({ storage: redisAdapter, storageKey: 'locale' });
 ```
 
-对于同步后端（例如服务端框架中的 cookie），加上 `isSync: true` 即可启用 `*Sync` 方法（`getLocaleSync`、`setLocaleSync`、`clearLocaleSync`、`isCurrentRegionSync`）。
+对于同步后端（例如服务端框架中的 cookie），加上 `isSync: true` 即可启用 `*Sync` 方法（`getLocaleSync`、`setLocaleSync`、`clearLocaleSync`、`isCurrentRegionSync`、`isCurrentLanguageSync`）。
 
 ### 异步适配器的处理方式
 
 异步是一等公民，而非事后补丁。当适配器**未设置 `isSync`**（或设为 `false`）且方法返回 Promise 时，它就是异步适配器。
 
-| 调用                    | 异步适配器下的行为                                                               |
-| ----------------------- | -------------------------------------------------------------------------------- |
-| `getLocale()`           | 等待 `storage.get`。                                                             |
-| `setLocale()`           | 等待 `storage.set` 完成后才 resolve。                                            |
-| `clearLocale()`         | 等待 `storage.remove` 完成后才 resolve。                                         |
-| `isCurrentRegion()`     | 等待内部的 `getLocale()`。                                                       |
-| `getLocaleSync()`       | **抛错** `Error: getLocaleSync() requires a synchronous storage adapter`。       |
-| `setLocaleSync()`       | **抛错** `Error: setLocaleSync() requires a synchronous storage adapter`。       |
-| `clearLocaleSync()`     | **抛错** `Error: clearLocaleSync() requires a synchronous storage adapter`。     |
-| `isCurrentRegionSync()` | **抛错** `Error: isCurrentRegionSync() requires a synchronous storage adapter`。 |
+| 调用                      | 异步适配器下的行为                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| `getLocale()`             | 等待 `storage.get`。                                                               |
+| `setLocale()`             | 等待 `storage.set` 完成后才 resolve。                                              |
+| `clearLocale()`           | 等待 `storage.remove` 完成后才 resolve。                                           |
+| `isCurrentRegion()`       | 等待内部的 `getLocale()`。                                                         |
+| `isCurrentLanguage()`     | 等待内部的 `getLocale()`。                                                         |
+| `getLocaleSync()`         | **抛错** `Error: getLocaleSync() requires a synchronous storage adapter`。         |
+| `setLocaleSync()`         | **抛错** `Error: setLocaleSync() requires a synchronous storage adapter`。         |
+| `clearLocaleSync()`       | **抛错** `Error: clearLocaleSync() requires a synchronous storage adapter`。       |
+| `isCurrentRegionSync()`   | **抛错** `Error: isCurrentRegionSync() requires a synchronous storage adapter`。   |
+| `isCurrentLanguageSync()` | **抛错** `Error: isCurrentLanguageSync() requires a synchronous storage adapter`。 |
 
 可依赖的四条规则：
 
@@ -458,16 +491,17 @@ isRegion('zh-CN', 'CN');
 
 在默认 `normalize: true` 下受影响的入口：
 
-| 调用                                   | 缺少 `Intl.Locale` 时    |
-| -------------------------------------- | ------------------------ |
-| `normalizeLocale()`                    | 抛错                     |
-| `isRegion()` / `isCurrentRegionSync()` | 抛错                     |
-| `getLocale()` / `getLocaleSync()`      | 抛错（需要规范化标签）   |
-| `setLocale()`                          | reject（需要规范化标签） |
-| `setLocaleSync()`                      | 抛错（需要规范化标签）   |
-| `clearLocale()` / `clearLocaleSync()`  | 正常工作                 |
+| 调用                                       | 缺少 `Intl.Locale` 时    |
+| ------------------------------------------ | ------------------------ |
+| `normalizeLocale()`                        | 抛错                     |
+| `isRegion()` / `isCurrentRegionSync()`     | 抛错                     |
+| `isLanguage()` / `isCurrentLanguageSync()` | 抛错                     |
+| `getLocale()` / `getLocaleSync()`          | 抛错（需要规范化标签）   |
+| `setLocale()`                              | reject（需要规范化标签） |
+| `setLocaleSync()`                          | 抛错（需要规范化标签）   |
+| `clearLocale()` / `clearLocaleSync()`      | 正常工作                 |
 
-唯一的逃生口是 `normalize: false`。此时 get/set 方法可在没有 `Intl.Locale` 的情况下工作（跳过校验与规范化），但 `isRegion()` / `isCurrentRegion()` / `isCurrentRegionSync()` 仍然依赖它。
+唯一的逃生口是 `normalize: false`。此时 get/set 方法可在没有 `Intl.Locale` 的情况下工作（跳过校验与规范化），但 `isRegion()` / `isCurrentRegion()` / `isCurrentRegionSync()` / `isLanguage()` / `isCurrentLanguage()` / `isCurrentLanguageSync()` 仍然依赖它。
 
 ## 开发
 

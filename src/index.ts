@@ -1,5 +1,10 @@
 import { cookieAdapter } from './adapters/cookie.js';
-import { detectNavigatorLocale, isRegion as isRegionTag, normalizeLocale } from './utils.js';
+import {
+  detectNavigatorLocale,
+  isLanguage as isLanguageTag,
+  isRegion as isRegionTag,
+  normalizeLocale,
+} from './utils.js';
 import type { LocalePref, LocalePrefOptions, StorageAdapter } from './types.js';
 
 const DEFAULT_STORAGE_KEY = 'user_locale';
@@ -170,6 +175,10 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
       return isRegionTag(locale, region);
     },
 
+    isLanguage(locale: string, language: string): boolean {
+      return isLanguageTag(locale, language);
+    },
+
     async isCurrentRegion(region: string): Promise<boolean> {
       return isRegionTag(await getLocale(), region);
     },
@@ -177,6 +186,15 @@ export function createLocalePref(options: LocalePrefOptions = {}): LocalePref {
     isCurrentRegionSync(region: string): boolean {
       assertSyncAdapter('isCurrentRegionSync');
       return isRegionTag(resolveLocaleSync(), region);
+    },
+
+    async isCurrentLanguage(language: string): Promise<boolean> {
+      return isLanguageTag(await getLocale(), language);
+    },
+
+    isCurrentLanguageSync(language: string): boolean {
+      assertSyncAdapter('isCurrentLanguageSync');
+      return isLanguageTag(resolveLocaleSync(), language);
     },
 
     getLocale,

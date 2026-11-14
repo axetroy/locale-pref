@@ -140,6 +140,25 @@ describe('isCurrentRegionSync', () => {
   });
 });
 
+describe('isCurrentLanguageSync', () => {
+  it('judges the stored language synchronously', () => {
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
+    expect(pref.isCurrentLanguageSync('zh')).toBe(true);
+    expect(pref.isCurrentLanguageSync('en')).toBe(false);
+  });
+
+  it('requires a synchronous adapter', () => {
+    const storage: StorageAdapter = {
+      get: async () => null,
+      set: async () => undefined,
+      remove: async () => undefined,
+    };
+    expect(() => createLocalePref({ storage }).isCurrentLanguageSync('zh')).toThrow(
+      'isCurrentLanguageSync() requires a synchronous storage adapter',
+    );
+  });
+});
+
 describe('a fully synchronous flow', () => {
   it('never produces a promise', () => {
     const storage = memoryAdapter();

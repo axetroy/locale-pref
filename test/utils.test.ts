@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { detectNavigatorLocale, isRegion, normalizeLocale } from '../src/utils.js';
+import { detectNavigatorLocale, isLanguage, isRegion, normalizeLocale } from '../src/utils.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -39,6 +39,18 @@ describe('Intl.Locale requirement', () => {
   it('isRegion throws an actionable error when Intl.Locale is missing', () => {
     withIntlLocale(undefined, () => {
       expect(() => isRegion('zh-CN', 'CN')).toThrow(/@formatjs\/intl-locale/);
+    });
+  });
+
+  it('isLanguage throws an actionable error when Intl.Locale is missing', () => {
+    withIntlLocale(undefined, () => {
+      expect(() => isLanguage('zh-CN', 'zh')).toThrow(/@formatjs\/intl-locale/);
+    });
+  });
+
+  it('isLanguage still returns false for non-string input without Intl.Locale', () => {
+    withIntlLocale(undefined, () => {
+      expect(isLanguage(undefined as unknown as string, 'zh')).toBe(false);
     });
   });
 
@@ -89,6 +101,43 @@ describe('isRegion', () => {
     expect(isRegion(undefined as unknown as string, 'CN')).toBe(false);
     expect(isRegion('zh-CN', undefined as unknown as string)).toBe(false);
     expect(isRegion(null as unknown as string, null as unknown as string)).toBe(false);
+  });
+});
+
+describe('isLanguage', () => {
+  it('detects a matching primary language subtag', () => {
+    expect(isLanguage('zh-CN', 'zh')).toBe(true);
+    expect(isLanguage('en', 'en')).toBe(true);
+  });
+
+  it('ignores region and script subtags', () => {
+    expect(isLanguage('zh-Hans-CN', 'zh')).toBe(true);
+    expect(isLanguage('zh-Hant-TW', 'zh')).toBe(true);
+  });
+
+  it('is case-insensitive for both arguments', () => {
+    expect(isLanguage('ZH-HANS-CN', 'Zh')).toBe(true);
+    expect(isLanguage('zh-CN', 'ZH')).toBe(true);
+  });
+
+  it('returns false for a different language', () => {
+    expect(isLanguage('en-US', 'zh')).toBe(false);
+    expect(isLanguage('zh-CN', 'en')).toBe(false);
+  });
+
+  it('returns false for an empty or malformed tag without throwing', () => {
+    expect(isLanguage('', 'zh')).toBe(false);
+    expect(isLanguage('invalid_tag!!', 'zh')).toBe(false);
+  });
+
+  it('returns false for a bare region-like argument that is not a language', () => {
+    expect(isLanguage('en-US', 'US')).toBe(false);
+  });
+
+  it('returns false for non-string input without throwing', () => {
+    expect(isLanguage(undefined as unknown as string, 'zh')).toBe(false);
+    expect(isLanguage('zh-CN', undefined as unknown as string)).toBe(false);
+    expect(isLanguage(null as unknown as string, null as unknown as string)).toBe(false);
   });
 });
 

@@ -143,11 +143,25 @@ describe('instance surface', () => {
     expect(pref.isRegion('invalid_tag!!', 'CN')).toBe(false);
   });
 
+  it('delegates isLanguage to the utility', () => {
+    const pref = createLocalePref();
+    expect(pref.isLanguage('zh-Hans-CN', 'zh')).toBe(true);
+    expect(pref.isLanguage('zh-Hans-CN', 'en')).toBe(false);
+    expect(pref.isLanguage('invalid_tag!!', 'zh')).toBe(false);
+  });
+
   it('reports isCurrentRegion for the resolved locale', async () => {
     stubNavigator(['en-US']);
     const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
     await expect(pref.isCurrentRegion('CN')).resolves.toBe(true);
     await expect(pref.isCurrentRegion('US')).resolves.toBe(false);
+  });
+
+  it('reports isCurrentLanguage for the resolved locale', async () => {
+    stubNavigator(['en-US']);
+    const pref = createLocalePref({ storage: memoryAdapter({ user_locale: 'zh-Hans-CN' }) });
+    await expect(pref.isCurrentLanguage('zh')).resolves.toBe(true);
+    await expect(pref.isCurrentLanguage('en')).resolves.toBe(false);
   });
 });
 

@@ -63,9 +63,10 @@ Run `pnpm run verify` before finishing any change. It must exit 0.
   scopes entries by attribute — notably a cookie's `path`/`domain` — needs the
   same options on delete as on write, or it deletes nothing. `cookieAdapter.remove`
   always writes `max-age=0` and ignores `maxAge` in the options.
-- Writes and region checks have synchronous twins (`setLocaleSync`,
-  `clearLocaleSync`, `isCurrentRegionSync`) alongside the `Promise`-returning
-  methods, matching the existing `getLocaleSync`. Each `*Sync` method asserts
+- Writes and locale checks have synchronous twins (`setLocaleSync`,
+  `clearLocaleSync`, `isCurrentRegionSync`, `isCurrentLanguageSync`) alongside the
+  `Promise`-returning methods, matching the existing `getLocaleSync`. Each `*Sync`
+  method asserts
   `isSync === true` via `assertSyncAdapter()` and otherwise throws
   `"<method>() requires a synchronous storage adapter"`. They exist so a fully
   synchronous flow stays synchronous: a floating `Promise` would trip
@@ -104,6 +105,11 @@ scripts/            CI helpers (dependency guard, entry-point smoke test)
 - Tests use real implementations (including `memoryAdapter` and a small
   `document` mock). Do not introduce mocks for library code.
 - Comments explain non-obvious intent only; do not narrate the change history.
+- `isRegion(locale, region)` and `isLanguage(locale, language)` are sibling
+  predicates over the same `Intl.Locale` parse: region compares the `region`
+  subtag, language compares the `language` subtag. Both return `false` for
+  malformed or non-string input and throw only when `Intl.Locale` is absent. Keep
+  their wording and behaviour symmetric.
 - `assertOptions()` in `src/index.ts` is the single place for construction-time
   validation: it checks every option's type, requires `storage` to expose
   `get`/`set`/`remove`, requires `fallback` entries to be strings, and rejects
