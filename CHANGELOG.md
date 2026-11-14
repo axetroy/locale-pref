@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- 7c427b4: Add `isLanguage()` to test a tag's primary language subtag.
+  
+  - `isLanguage(locale, language)` is exported from `locale-pref/utils`. It tests
+    whether a tag's primary language subtag matches a bare subtag such as `'zh'` or
+    `'en'`, ignoring region and script — so `zh-Hans-CN` and `zh-Hant-TW` both match
+    `'zh'`. It never throws for malformed or non-string input (returns `false`) and
+    is case-insensitive.
+  - The instance gains `isLanguage(language)` / `isLanguageSync(language)`, which
+    judge the current locale and delegate to the utility. `isLanguageSync` requires
+    an adapter with `isSync: true`, like the other `*Sync` methods.
+  
+  Previously only a region check existed; asking "is the current locale Chinese?"
+  required an awkward `isRegion` call or manual subtag parsing.
+- 7c427b4: Add `isScript()` to tell Simplified from Traditional Chinese.
+  
+  Simplified and Traditional are the same language (`zh`) in two scripts, `Hans`
+  and `Hant` — a subtag, not a separate language — so `isLanguage` alone cannot
+  distinguish them.
+  
+  - `isScript(locale, script)` is exported from `locale-pref/utils`. It tests the
+    script subtag, maximizing the tag first so a region-only tag still resolves:
+    `zh-CN` → `Hans`, `zh-TW`/`zh-HK`/`zh-MO` → `Hant`. Never throws for malformed
+    or non-string input (returns `false`) and is case-insensitive.
+  - The instance gains `isScript(script)` / `isScriptSync(script)`, which judge the
+    current locale and delegate to the utility.
+  
+  Typical use: `isLanguage(locale, 'zh')` to detect Chinese, then
+  `isScript(locale, 'Hans')` to tell Simplified from Traditional.
+- 7c427b4: Simplify the instance predicates: the instance answers only about the current
+  locale, and the pure predicates live only on `locale-pref/utils`.
+  
+  **Breaking** (0.x minor, as pre-1.0 breaking changes bump the minor):
+  
+  - `isCurrentRegion(region)` → `isRegion(region)`, and
+    `isCurrentRegionSync(region)` → `isRegionSync(region)`. The `Current` prefix is
+    gone because on the instance "current" is already the default, exactly as with
+    `getLocale()`.
+  - The instance no longer exposes the pure `isRegion(locale, region)` /
+    `isLanguage(locale, language)` / `isScript(locale, script)` forms, nor
+    `normalizeLocale(locale)`. Import them from `locale-pref/utils` instead; the
+    instance methods delegate to them.
+  
+  Why: the pure predicates were duplicated on the instance, and overloading the
+  instance form on argument count would make `pref.isRegion('zh-CN')` silently mean
+  "is the *current* locale's region `zh-CN`?", switching the return type between
+  `boolean` and `Promise<boolean>` by arity. Keeping them apart gives each question
+  exactly one spelling:
+  
+  ```ts
+  import { createLocalePref } from 'locale-pref';
+  import { isRegion } from 'locale-pref/utils';
+  
+  const pref = createLocalePref();
+  
+  await pref.isRegion('CN');     // about the current locale (reads storage)
+  isRegion('zh-Hans-CN', 'CN');  // about any tag you have (pure, no storage)
+  ```
+
+### Patch Changes
+
+- ab9629d: Harden `createLocalePref()` option and `setLocale()` input validation.
+  
+  - `createLocalePref()` now rejects a `storage` object that lacks `get`/`set`/`remove`
+    (`{}` previously passed construction and failed later with an opaque error).
+  - `fallback` entries must be strings; a non-string entry is a `TypeError` instead of
+    being silently ignored during resolution.
+  - `storageKey` and `defaultLocale` must be non-empty strings; an empty value used to
+    make every read miss and every write a silent no-op.
+  - The `fallback` array is now copied at construction, so mutating the caller's array
+    afterwards can no longer change the instance's resolution order.
+  - `setLocale()` / `setLocaleSync()` reject a non-string tag with a `TypeError` even
+    when `normalize: false`, instead of passing a non-string through to the adapter.
+
 ## 0.1.0
 
 ### Minor Changes
